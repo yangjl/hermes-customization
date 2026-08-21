@@ -1,0 +1,461 @@
+diff --git a/apps/desktop/src/app/chat/composer/index.tsx b/apps/desktop/src/app/chat/composer/index.tsx
+index 98830fc67..c4fe6b0eb 100644
+--- a/apps/desktop/src/app/chat/composer/index.tsx
++++ b/apps/desktop/src/app/chat/composer/index.tsx
+@@ -5,6 +5,7 @@ import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useCallback, u
+ import { useHudComposerDrag } from '@/app/hud/composer-drag'
+ import { composerFill, composerFloatingStrip, composerSurfaceGlass } from '@/components/chat/composer-dock'
+ import { Button } from '@/components/ui/button'
++import { ContextUsageRing } from '@/components/ui/context-usage-ring'
+ import { Slot as ContribSlot } from '@/contrib/react/slot'
+ import { useI18n } from '@/i18n'
+ import { chatMessageText } from '@/lib/chat-messages'
+@@ -12,6 +13,8 @@ import { PR_COMMENT_URL_RE } from '@/lib/chat-runtime'
+ import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
+ import { DATA_IMAGE_URL_RE } from '@/lib/embedded-images'
+ import { triggerHaptic } from '@/lib/haptics'
++import { contextUsagePercent } from '@/lib/statusbar'
++import { useStoreSelector } from '@/lib/use-session-slice'
+ import { cn } from '@/lib/utils'
+ import { interceptsTypedVoiceStop } from '@/lib/voice-stop-word'
+ import { sessionCompacting } from '@/store/compaction'
+@@ -21,10 +24,12 @@ import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/st
+ import { $hudMode } from '@/store/hud'
+ import { sessionBlockingPrompt } from '@/store/prompts'
+ import { toggleReview } from '@/store/review'
+-import { $gatewayState } from '@/store/session'
++import { $currentUsage, $gatewayState } from '@/store/session'
++import { $sessionStates } from '@/store/session-states'
+ import { $threadScrolledUp } from '@/store/thread-scroll'
+ import { $autoSpeakReplies } from '@/store/voice-prefs'
+ import { useTheme } from '@/themes'
++import type { UsageStats } from '@/types/hermes'
+ 
+ import { AttachmentList } from './attachments'
+ import {
+@@ -82,6 +87,8 @@ import { UrlDialog } from './url-dialog'
+ import { chipTypedUrlOnSpace, linkifyUrls } from './url-refs'
+ import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
+ 
++const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
++
+ export function ChatBar({
+   busy,
+   cwd,
+@@ -150,6 +157,9 @@ export function ChatBar({
+   // focus-bus key, and awaiting-input edge. Main scope = the legacy globals.
+   const scope = useComposerScope()
+   const attachments = useStore(scope.attachments.$attachments)
++  const primaryUsage = useStore($currentUsage)
++  const tileUsage = useStoreSelector($sessionStates, states => (sessionId ? (states[sessionId]?.usage ?? null) : null))
++  const contextPercent = contextUsagePercent(scope.target === 'main' ? primaryUsage : (tileUsage ?? EMPTY_USAGE))
+   const compacting = useStore(useMemo(() => sessionCompacting(sessionId ?? null), [sessionId]))
+   const scrolledUp = useStore($threadScrolledUp)
+   const autoSpeak = useStore($autoSpeakReplies)
+@@ -1331,6 +1341,15 @@ export function ChatBar({
+                     </div>
+                     <div className="min-w-0 [grid-area:input]">{input}</div>
+                     <div className="flex min-w-0 items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
++                      {contextPercent !== null && (
++                        <span
++                          className="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.6875rem] tabular-nums text-(--ui-text-secondary)"
++                          data-slot="composer-context-usage"
++                        >
++                          <ContextUsageRing percent={contextPercent} />
++                          <span>{contextPercent}%</span>
++                        </span>
++                      )}
+                       <ContribSlot area={COMPOSER_AREAS.actions} />
+                       {controls}
+                     </div>
+diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
+index 868b11670..9044c8adf 100644
+--- a/apps/desktop/src/app/chat/sidebar/index.tsx
++++ b/apps/desktop/src/app/chat/sidebar/index.tsx
+@@ -1518,7 +1518,7 @@ export function ChatSidebar({
+                     }
+                     type="button"
+                   >
+-                    <item.icon className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]" />
++                    <item.icon className="size-5 shrink-0 text-[color-mix(in_srgb,currentColor_78%,transparent)]" />
+                     <span className="min-w-0 flex-1 truncate">{s.nav[item.id] ?? item.label}</span>
+                     {isNewSession && (
+                       <KbdGroup
+diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+index dfdfd84f2..2c256901c 100644
+--- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
++++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
+  *  when the backend the app talks to swaps underneath a still-mounted view. */
+ export function useOnProfileSwitch(onSwitch: () => void): void {
+   const profile = useStore($activeGatewayProfile)
+-  const first = useRef(true)
++  const previousProfile = useRef(profile)
+ 
+   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
+   useEffect(() => {
+-    if (first.current) {
+-      first.current = false
+-
++    // React StrictMode replays mount effects in development. A "first effect"
++    // boolean turns that replay into a fake switch and clears freshly loaded
++    // Settings drafts, leaving the overlay on skeletons until a page refresh.
++    // Comparing the identity itself makes both mount passes no-ops while a real
++    // A → B profile transition still fires exactly once.
++    if (previousProfile.current === profile) {
+       return
+     }
+ 
++    previousProfile.current = profile
+     onSwitch()
+     // Fire on profile change only; onSwitch identity is intentionally ignored.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+diff --git a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
+index 65e770819..8801e50a6 100644
+--- a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
++++ b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
+@@ -10,12 +10,13 @@ import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
+ import { useContextBreakdown } from '@/app/shell/hooks/use-context-breakdown'
+ import { $paneVisible, togglePaneVisible } from '@/components/pane-shell/tree/store'
+ import { Codicon } from '@/components/ui/codicon'
++import { ContextUsageRing } from '@/components/ui/context-usage-ring'
+ import { GlyphSpinner } from '@/components/ui/glyph-spinner'
+ import { useI18n } from '@/i18n'
+ import { displayPath, pathLeaf } from '@/lib/display-path'
+ import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
+ import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
+-import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
++import { contextUsagePercent, LiveDuration } from '@/lib/statusbar'
+ import { useStoreSelector } from '@/lib/use-session-slice'
+ import { cn } from '@/lib/utils'
+ import { resolveVersionStatus } from '@/lib/version-status'
+@@ -264,8 +265,7 @@ export function useStatusbarItems({
+     [contextBreakdown, currentUsage]
+   )
+ 
+-  const contextUsage = useMemo(() => usageContextLabel(gaugeUsage), [gaugeUsage])
+-  const contextBar = useMemo(() => contextBarLabel(gaugeUsage), [gaugeUsage])
++  const contextPercent = useMemo(() => contextUsagePercent(gaugeUsage), [gaugeUsage])
+ 
+   const approvalModeItem = useApprovalModeStatusbarItem(activeGatewayProfile, requestGateway)
+ 
+@@ -543,10 +543,10 @@ export function useStatusbarItems({
+         variant: 'text'
+       },
+       {
+-        detail: contextBar || undefined,
+-        hidden: !contextUsage,
++        hidden: contextPercent === null,
++        icon: contextPercent === null ? undefined : <ContextUsageRing percent={contextPercent} />,
+         id: 'context-usage',
+-        label: contextUsage,
++        label: contextPercent === null ? undefined : `${contextPercent}%`,
+         menuAlign: 'end',
+         menuClassName: 'w-auto border-(--ui-stroke-secondary) p-0',
+         menuContent: (
+@@ -588,10 +588,9 @@ export function useStatusbarItems({
+       busy,
+       chatOpen,
+       clientVersionItem,
+-      contextBar,
+       contextBreakdown,
+       contextBreakdownLoading,
+-      contextUsage,
++      contextPercent,
+       copy,
+       gaugeUsage,
+       sessionStartedAt,
+diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+index e0a3772b8..3182a94b9 100644
+--- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
++++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+@@ -650,9 +650,9 @@ function Sash({
+         // Asymmetric grab band: only 1px reaches into the leading pane so its
+         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
+         // swallowed it entirely — the pointer got col-resize instead of the
+-        // thumb). The trailing side keeps a generous 7px reach; total grab
+-        // width stays ~8px so the sash is no harder to hit.
+-        horizontal ? 'inset-y-0 left-0 w-[8px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[8px] -translate-y-[1px]',
++        // thumb). Keep only 4px on the trailing side: the previous 7px reach
++        // grabbed ordinary clicks near a rail and made resizing feel twitchy.
++        horizontal ? 'inset-y-0 left-0 w-[5px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[5px] -translate-y-[1px]',
+         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
+       )}
+       onDoubleClick={disabled ? undefined : onDoubleClick}
+diff --git a/apps/desktop/src/lib/statusbar.tsx b/apps/desktop/src/lib/statusbar.tsx
+index 01ca3b645..f89e3a964 100644
+--- a/apps/desktop/src/lib/statusbar.tsx
++++ b/apps/desktop/src/lib/statusbar.tsx
+@@ -41,6 +41,14 @@ export function contextBar(percent: number | undefined, width = 10): string {
+   return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`
+ }
+ 
++export function contextUsagePercent(usage: UsageStats): number | null {
++  if (!usage.context_max) {
++    return null
++  }
++
++  return Math.max(0, Math.min(100, Math.round(usage.context_percent ?? 0)))
++}
++
+ export function usageContextLabel(usage: UsageStats): string {
+   if (usage.context_max) {
+     return `${compactNumber(usage.context_used ?? 0)}/${compactNumber(usage.context_max)}`
+@@ -50,12 +58,12 @@ export function usageContextLabel(usage: UsageStats): string {
+ }
+ 
+ export function contextBarLabel(usage: UsageStats): string {
+-  if (!usage.context_max) {
++  const pct = contextUsagePercent(usage)
++
++  if (pct === null) {
+     return ''
+   }
+ 
+-  const pct = Math.max(0, Math.min(100, Math.round(usage.context_percent ?? 0)))
+-
+   return `[${contextBar(usage.context_percent)}] ${pct}%`
+ }
+ 
+diff --git a/apps/desktop/src/styles.css b/apps/desktop/src/styles.css
+index a65d9168c..43ac4adc9 100644
+--- a/apps/desktop/src/styles.css
++++ b/apps/desktop/src/styles.css
+@@ -481,10 +481,14 @@
+     --composer-ring-strength: 1;
+     --composer-surface-pad-x: 0.5rem;
+     --composer-surface-pad-y: 0.3125rem;
+-    --composer-input-min-height: 1.625rem;
++    /* Three text lines at rest (3lh) plus the editor's 0.25rem block padding.
++       It still grows naturally up to the existing max-height. */
++    --composer-input-min-height: calc(3lh + 0.5rem);
+     --composer-input-max-height: 9.375rem;
+     --composer-input-inline-min-width: 8rem;
+-    --composer-fallback-height: 2.75rem;
++    /* Pre-measure paint for the same three-line composer: old one-line fallback
++       plus the two additional 1.21875rem text lines. */
++    --composer-fallback-height: 5.1875rem;
+     --composer-measured-height: calc(0.5rem + var(--composer-shell-pad-block-end) + var(--composer-fallback-height));
+     --composer-surface-measured-height: var(--composer-fallback-height);
+     --thread-viewport-height: max(
+diff --git a/apps/desktop/src/themes/skin.test.ts b/apps/desktop/src/themes/skin.test.ts
+index 353a690ad..1c3407ae6 100644
+--- a/apps/desktop/src/themes/skin.test.ts
++++ b/apps/desktop/src/themes/skin.test.ts
+@@ -28,6 +28,24 @@ describe('skinToDesktopTheme', () => {
+     expect(theme.colors.foreground).toBe('#ffffff')
+   })
+ 
++  it('honors explicit desktop surface colors without changing terminal colors', () => {
++    const theme = withColors('lab', {
++      background: '#f7f7f7',
++      ui_text: '#3c3c3c',
++      desktop_background: '#ffffff',
++      desktop_sidebar_background: '#eeeeee',
++      desktop_panel_background: '#f3f3f3',
++      desktop_foreground: '#242424',
++      desktop_muted_foreground: '#555555'
++    })!
++
++    expect(theme.colors.background).toBe('#ffffff')
++    expect(theme.colors.sidebarBackground).toBe('#eeeeee')
++    expect(theme.colors.card).toBe('#f3f3f3')
++    expect(theme.colors.foreground).toBe('#242424')
++    expect(theme.colors.mutedForeground).toBe('#555555')
++  })
++
+   it('buckets dark vs light from background luminance', () => {
+     const dark = withColors('d', { background: '#111111', banner_text: '#eeeeee' })!
+     const light = withColors('l', { background: '#fafafa', banner_text: '#111111' })!
+diff --git a/apps/desktop/src/themes/skin.ts b/apps/desktop/src/themes/skin.ts
+index 61fa71122..de80ced50 100644
+--- a/apps/desktop/src/themes/skin.ts
++++ b/apps/desktop/src/themes/skin.ts
+@@ -54,8 +54,13 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
+   // Background is the backdrop every other token flattens alpha over. Skins are
+   // terminal-first so most only tint chrome — `status_bar_bg` is the closest
+   // thing to an app surface; `background` is the explicit opt-in for GUI authors.
+-  const seededBg = pick(colors, ['background', 'status_bar_bg'], '#000000')
+-  const foregroundSeed = pick(colors, ['ui_text', 'banner_text', 'status_bar_text'], seededBg ?? '#000000')
++  const seededBg = pick(colors, ['desktop_background', 'background', 'status_bar_bg'], '#000000')
++
++  const foregroundSeed = pick(
++    colors,
++    ['desktop_foreground', 'ui_text', 'banner_text', 'status_bar_text'],
++    seededBg ?? '#000000'
++  )
+ 
+   // No background given: bucket by foreground luminance (light text ⇒ dark app).
+   const background = seededBg ?? (foregroundSeed && luminance(foregroundSeed) > 0.5 ? '#141414' : '#f7f7f8')
+@@ -65,21 +70,27 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
+   const accentSeed =
+     pick(colors, ['ui_accent', 'banner_accent', 'banner_title'], background) ?? mix(foreground, background, 0.55)
+ 
+-  const sidebar = mix(background, foreground, dark ? 0.02 : 0.012)
++  const sidebar =
++    pick(colors, ['desktop_sidebar_background'], background) ?? mix(background, foreground, dark ? 0.02 : 0.012)
++
++  const card =
++    pick(colors, ['desktop_panel_background'], background) ?? mix(background, foreground, dark ? 0.04 : 0.025)
++
+   const accent = ensureContrast(accentSeed, sidebar, ACCENT_MIN_CONTRAST)
+ 
+   const border =
+     pick(colors, ['ui_border', 'banner_border'], background) ?? mix(background, foreground, dark ? 0.16 : 0.14)
+ 
+   const mutedForeground =
+-    pick(colors, ['banner_dim', 'session_border'], background) ?? mix(foreground, background, 0.45)
++    pick(colors, ['desktop_muted_foreground', 'banner_dim', 'session_border'], background) ??
++    mix(foreground, background, 0.45)
+ 
+   const destructive = pick(colors, ['ui_error'], background) ?? '#e25563'
+ 
+   const palette: DesktopThemeColors = {
+     background,
+     foreground,
+-    card: mix(background, foreground, dark ? 0.04 : 0.025),
++    card,
+     cardForeground: foreground,
+     muted: mix(background, foreground, dark ? 0.06 : 0.04),
+     mutedForeground,
+diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
+index cc2449988..89f162e5f 100644
+--- a/hermes_cli/web_server.py
++++ b/hermes_cli/web_server.py
+@@ -17729,6 +17729,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+         result["customCSS"] = custom_css
+     if component_styles:
+         result["componentStyles"] = component_styles
++    for key in ("terminalBackground", "terminalForeground"):
++        value = data.get(key)
++        if isinstance(value, str) and value.strip():
++            result[key] = value
+     return result
+ 
+ 
+diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
+index 5c1fb1e98..3df731011 100644
+--- a/tests/hermes_cli/test_web_server.py
++++ b/tests/hermes_cli/test_web_server.py
+@@ -3636,6 +3636,19 @@ class TestNormaliseThemeExtensions:
+         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
+         assert len(r2["customCSS"]) <= 32 * 1024
+ 
++    def test_terminal_colors_reach_custom_theme_clients(self):
++        """A user theme can control the xterm canvas and selection contrast."""
++        from hermes_cli.web_server import _normalise_theme_definition
++
++        result = _normalise_theme_definition({
++            "name": "light-terminal",
++            "terminalBackground": "#f7f7f7",
++            "terminalForeground": "#252526",
++        })
++
++        assert result["terminalBackground"] == "#f7f7f7"
++        assert result["terminalForeground"] == "#252526"
++
+ 
+     def test_component_styles_per_bucket(self):
+         from hermes_cli.web_server import _normalise_theme_definition
+diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
+new file mode 100644
+index 000000000..8a0b26470
+--- /dev/null
++++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
+@@ -0,0 +1,40 @@
++import { act, cleanup, render } from '@testing-library/react'
++import { StrictMode } from 'react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++import { $activeGatewayProfile } from '@/store/profile'
++
++import { useOnProfileSwitch } from './use-on-profile-switch'
++
++function Harness({ onSwitch }: { onSwitch: () => void }) {
++  useOnProfileSwitch(onSwitch)
++
++  return null
++}
++
++describe('useOnProfileSwitch', () => {
++  beforeEach(() => {
++    $activeGatewayProfile.set('default')
++  })
++
++  afterEach(() => {
++    cleanup()
++    $activeGatewayProfile.set('default')
++  })
++
++  it('does not report the StrictMode effect replay as a profile switch', () => {
++    const onSwitch = vi.fn()
++
++    render(
++      <StrictMode>
++        <Harness onSwitch={onSwitch} />
++      </StrictMode>
++    )
++
++    expect(onSwitch).not.toHaveBeenCalled()
++
++    act(() => $activeGatewayProfile.set('research'))
++
++    expect(onSwitch).toHaveBeenCalledOnce()
++  })
++})
+diff --git a/apps/desktop/src/components/ui/context-usage-ring.tsx b/apps/desktop/src/components/ui/context-usage-ring.tsx
+new file mode 100644
+index 000000000..703aa7bad
+--- /dev/null
++++ b/apps/desktop/src/components/ui/context-usage-ring.tsx
+@@ -0,0 +1,30 @@
++import type { ComponentProps } from 'react'
++
++import { cn } from '@/lib/utils'
++
++interface ContextUsageRingProps extends Omit<ComponentProps<'svg'>, 'children'> {
++  percent: number
++}
++
++/** Compact occupancy ring shared by the composer and status bar. */
++export function ContextUsageRing({ className, percent, ...props }: ContextUsageRingProps) {
++  const bounded = Math.max(0, Math.min(100, Math.round(percent)))
++
++  return (
++    <svg aria-hidden className={cn('size-3', className)} viewBox="0 0 12 12" {...props}>
++      <circle cx="6" cy="6" fill="none" opacity="0.18" r="4.5" stroke="currentColor" strokeWidth="1.5" />
++      <circle
++        cx="6"
++        cy="6"
++        fill="none"
++        pathLength="100"
++        r="4.5"
++        stroke="currentColor"
++        strokeDasharray={`${bounded} 100`}
++        strokeLinecap="round"
++        strokeWidth="1.5"
++        transform="rotate(-90 6 6)"
++      />
++    </svg>
++  )
++}
+diff --git a/apps/desktop/src/lib/statusbar.test.ts b/apps/desktop/src/lib/statusbar.test.ts
+new file mode 100644
+index 000000000..017c66951
+--- /dev/null
++++ b/apps/desktop/src/lib/statusbar.test.ts
+@@ -0,0 +1,14 @@
++import { describe, expect, it } from 'vitest'
++
++import { contextUsagePercent } from './statusbar'
++
++describe('contextUsagePercent', () => {
++  it('returns a rounded, bounded percentage when context capacity is known', () => {
++    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 41.4, input: 0, output: 0, total: 0 })).toBe(41)
++    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 140, input: 0, output: 0, total: 0 })).toBe(100)
++  })
++
++  it('returns null before the backend reports a context capacity', () => {
++    expect(contextUsagePercent({ calls: 0, input: 0, output: 0, total: 20 })).toBeNull()
++  })
++})

@@ -9,14 +9,16 @@ skin_target_dir="$hermes_root/skins"
 desktop_plugin_target_dir="$hermes_root/desktop-plugins/research-dashboard"
 web_report_target_dir="$hermes_root/research-report"
 patch_file="$repo_dir/patches/terminal-theme-fields.patch"
+desktop_patch_file="$repo_dir/patches/desktop-research-workflow.patch"
 theme_name="hermes-focus"
 
 usage() {
-  echo "Usage: ./install.sh [--theme NAME] [--with-terminal-patch]"
+  echo "Usage: ./install.sh [--theme NAME] [--with-terminal-patch | --with-desktop-patch]"
   echo "Themes: hermes-focus (default), light-lab"
 }
 
 apply_terminal_patch=false
+apply_desktop_patch=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --theme)
@@ -26,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-terminal-patch)
       apply_terminal_patch=true
+      shift
+      ;;
+    --with-desktop-patch)
+      apply_desktop_patch=true
       shift
       ;;
     -h|--help)
@@ -38,6 +44,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if "$apply_terminal_patch" && "$apply_desktop_patch"; then
+  echo "Choose only one patch; the Desktop patch already includes the terminal theme fix." >&2
+  exit 2
+fi
 
 theme_source="$repo_dir/dashboard-themes/$theme_name.yaml"
 if [[ ! -f "$theme_source" ]]; then
@@ -91,6 +102,25 @@ if "$apply_terminal_patch"; then
   else
     echo "Compatibility patch does not apply cleanly; Hermes may already include the fix." >&2
     echo "Inspect $patch_file before changing the Hermes source tree." >&2
+    exit 1
+  fi
+fi
+
+if "$apply_desktop_patch"; then
+  if [[ ! -d "$hermes_source/.git" ]]; then
+    echo "Hermes source repository not found at $hermes_source" >&2
+    exit 1
+  fi
+
+  if git -C "$hermes_source" apply --reverse --check "$desktop_patch_file" >/dev/null 2>&1; then
+    echo "Desktop Research workflow patch is already present."
+  elif git -C "$hermes_source" apply --check "$desktop_patch_file" >/dev/null 2>&1; then
+    git -C "$hermes_source" apply "$desktop_patch_file"
+    echo "Applied Desktop Research workflow patch."
+    echo "Restart Hermes Desktop to load the patched interface."
+  else
+    echo "Desktop patch does not apply cleanly; the Hermes source version may differ." >&2
+    echo "Inspect $desktop_patch_file before changing the Hermes source tree." >&2
     exit 1
   fi
 fi
