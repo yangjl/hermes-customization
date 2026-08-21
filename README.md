@@ -86,6 +86,16 @@ Dock and launch state unchanged when needed:
 The packaged app is a local development build. It is not signed or notarized
 for distribution.
 
+Use the packaged `/Applications/Hermes.app` for daily work. The Vite/Electron
+development window hot-reloads every intermediate source save and can briefly
+remount or black out while core Desktop files are being edited.
+
+`install-desktop-app.sh` also verifies the pinned `get-windows` native optional
+dependency before packaging. On a Command Line Tools-only Mac whose compiler is
+present but whose Apple installer receipt is missing, it uses a temporary
+`xcodebuild -version` shim for that one native build. It does not modify system
+receipts, package manifests, or the lockfile.
+
 Override install locations when needed:
 
 ```bash

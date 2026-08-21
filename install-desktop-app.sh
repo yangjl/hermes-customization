@@ -73,7 +73,110 @@ if [[ "$install_target" != /* || "$install_target" != *.app ]]; then
   exit 2
 fi
 
+get_windows_available() {
+  local expected_version="$1"
+  local package_root="$hermes_source/node_modules/get-windows"
+  local installed_version
+  local main_archs
+
+  [[ -f "$package_root/package.json" ]] || return 1
+  [[ -x "$package_root/main" ]] || return 1
+  main_archs="$(/usr/bin/lipo -archs "$package_root/main" 2>/dev/null || true)"
+  [[ " $main_archs " == *" x86_64 "* ]] || return 1
+  [[ " $main_archs " == *" arm64 "* ]] || return 1
+  installed_version="$(node -p "require(process.argv[1]).version" \
+    "$package_root/package.json" 2>/dev/null || true)"
+  [[ "$installed_version" == "$expected_version" ]] || return 1
+
+  (
+    cd "$hermes_source"
+    node -e "import('get-windows').then(() => process.exit(0)).catch(() => process.exit(1))"
+  ) >/dev/null 2>&1
+}
+
+ensure_get_windows() {
+  local desktop_package="$hermes_source/apps/desktop/package.json"
+  local get_windows_version
+  local clang_output
+  local toolchain_version="12.0"
+  local developer_dir
+  local clt_receipt_present=false
+  local clt_compiler_works=false
+  local package_id
+  local shim_dir
+
+  get_windows_version="$(node -p \
+    "require(process.argv[1]).optionalDependencies['get-windows']" \
+    "$desktop_package")"
+  if [[ -z "$get_windows_version" || "$get_windows_version" == "undefined" ]]; then
+    echo "Hermes Desktop does not declare get-windows as an optional dependency." >&2
+    return 1
+  fi
+
+  if get_windows_available "$get_windows_version"; then
+    return 0
+  fi
+
+  echo "Installing required optional dependency get-windows@$get_windows_version"
+
+  # Some CLT-only Macs have a working compiler but no pkgutil receipt. node-gyp
+  # mistakes that for a missing toolchain. Give this one build the version
+  # answer it needs; do not alter system receipts or persist the shim.
+  developer_dir="$(xcode-select -p 2>/dev/null || true)"
+  for package_id in \
+    com.apple.pkg.CLTools_Executables \
+    com.apple.pkg.DeveloperToolsCLILeo \
+    com.apple.pkg.DeveloperToolsCLI; do
+    if /usr/sbin/pkgutil --pkg-info "$package_id" >/dev/null 2>&1; then
+      clt_receipt_present=true
+      break
+    fi
+  done
+  if command -v clang >/dev/null 2>&1 && \
+    clang -x c -c -o /dev/null - <<< 'int main(void) { return 0; }' >/dev/null 2>&1; then
+    clt_compiler_works=true
+  fi
+
+  if ! /usr/bin/xcodebuild -version >/dev/null 2>&1 && \
+    [[ "$developer_dir" == */CommandLineTools ]] && [[ -d "$developer_dir" ]] && \
+    ! "$clt_receipt_present" && "$clt_compiler_works"; then
+    clang_output="$(clang --version 2>/dev/null || true)"
+    if [[ "$clang_output" =~ Apple\ clang\ version\ ([0-9]+\.[0-9]+) ]]; then
+      toolchain_version="${BASH_REMATCH[1]}"
+    fi
+
+    shim_dir="$(mktemp -d "${TMPDIR:-/private/tmp}/hermes-xcodebuild.XXXXXX")"
+    if ! (
+      trap 'rm -rf "$shim_dir"' EXIT
+      trap 'exit 130' INT
+      trap 'exit 143' TERM
+      cat >"$shim_dir/xcodebuild" <<EOF
+#!/bin/sh
+if [ "\$1" = "-version" ]; then
+  printf 'Xcode $toolchain_version\\nBuild version CLT\\n'
+  exit 0
+fi
+exec /usr/bin/xcodebuild "\$@"
+EOF
+      chmod +x "$shim_dir/xcodebuild"
+      PATH="$shim_dir:$PATH" npm --prefix "$hermes_source" install \
+        "get-windows@$get_windows_version" --no-save --foreground-scripts
+    ); then
+      return 1
+    fi
+  else
+    npm --prefix "$hermes_source" install \
+      "get-windows@$get_windows_version" --no-save --foreground-scripts
+  fi
+
+  if ! get_windows_available "$get_windows_version"; then
+    echo "get-windows installed but its pinned version or macOS executable is invalid." >&2
+    return 1
+  fi
+}
+
 if "$build_app"; then
+  ensure_get_windows
   echo "Packaging Hermes Desktop from $hermes_source"
   npm --prefix "$hermes_source" run pack --workspace apps/desktop
 fi
