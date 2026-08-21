@@ -1,0 +1,39 @@
+diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
+index cc2449988..89f162e5f 100644
+--- a/hermes_cli/web_server.py
++++ b/hermes_cli/web_server.py
+@@ -17729,6 +17729,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+         result["customCSS"] = custom_css
+     if component_styles:
+         result["componentStyles"] = component_styles
++    for key in ("terminalBackground", "terminalForeground"):
++        value = data.get(key)
++        if isinstance(value, str) and value.strip():
++            result[key] = value
+     return result
+ 
+ 
+diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
+index 5c1fb1e98..3df731011 100644
+--- a/tests/hermes_cli/test_web_server.py
++++ b/tests/hermes_cli/test_web_server.py
+@@ -3636,6 +3636,19 @@ class TestNormaliseThemeExtensions:
+         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
+         assert len(r2["customCSS"]) <= 32 * 1024
+ 
++    def test_terminal_colors_reach_custom_theme_clients(self):
++        """A user theme can control the xterm canvas and selection contrast."""
++        from hermes_cli.web_server import _normalise_theme_definition
++
++        result = _normalise_theme_definition({
++            "name": "light-terminal",
++            "terminalBackground": "#f7f7f7",
++            "terminalForeground": "#252526",
++        })
++
++        assert result["terminalBackground"] == "#f7f7f7"
++        assert result["terminalForeground"] == "#252526"
++
+ 
+     def test_component_styles_per_bucket(self):
+         from hermes_cli.web_server import _normalise_theme_definition

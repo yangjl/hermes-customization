@@ -1,0 +1,71 @@
+name: light-lab
+label: Light Lab
+description: Light Lab workspace with cool blue accents and restrained gray chrome
+
+palette:
+  background: "#f7f7f7"
+  midground: "#3c3c3c"
+  foreground:
+    hex: "#007acc"
+    alpha: 0
+  warmGlow: "rgba(0, 122, 204, 0.08)"
+  noiseOpacity: 0
+
+typography:
+  fontSans: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+  fontMono: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace'
+  fontDisplay: 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+  baseSize: "15px"
+  lineHeight: "1.5"
+  letterSpacing: "0"
+
+layout:
+  radius: "0.5rem"
+  density: comfortable
+
+terminalBackground: "#f7f7f7"
+terminalForeground: "#252526"
+
+colorOverrides:
+  card: "#ffffff"
+  cardForeground: "#3c3c3c"
+  popover: "#ffffff"
+  popoverForeground: "#3c3c3c"
+  primary: "#007acc"
+  primaryForeground: "#ffffff"
+  secondary: "#eeeeee"
+  secondaryForeground: "#3c3c3c"
+  muted: "#f0f0f0"
+  mutedForeground: "#6a6a6a"
+  accent: "#e4e6f1"
+  accentForeground: "#252526"
+  destructive: "#c72e2e"
+  destructiveForeground: "#ffffff"
+  success: "#008000"
+  warning: "#a15c00"
+  border: "#d4d4d4"
+  input: "#d4d4d4"
+  ring: "#007acc"
+
+customCSS: |
+  :root {
+    --font-sans: var(--theme-font-sans);
+    --font-rules-compressed: var(--theme-font-sans);
+    --font-rules-expanded: var(--theme-font-sans);
+    --font-mondwest: var(--theme-font-sans);
+    --text-primary: #252526;
+    --text-secondary: #252526;
+    --text-tertiary: #3c3c3c;
+    --text-disabled: #6a6a6a;
+    --text-display: #252526;
+    --color-text-primary: #252526;
+    --color-text-secondary: #252526;
+    --color-text-tertiary: #3c3c3c;
+    --color-text-disabled: #6a6a6a;
+    --color-text-display: #252526;
+  }
+
+  #root div:has(> .hermes-chat-xterm-host) {
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }

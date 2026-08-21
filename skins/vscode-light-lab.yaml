@@ -1,0 +1,52 @@
+name: vscode-light-lab
+description: VS Code-inspired light workspace with cool blue accents and restrained
+  gray chrome
+colors:
+  background: '#f7f7f7'
+  desktop_background: '#ffffff'
+  desktop_sidebar_background: '#f2f2f2'
+  desktop_panel_background: '#f4f4f4'
+  desktop_foreground: '#252525'
+  desktop_muted_foreground: '#555555'
+  ui_accent: '#007acc'
+  banner_accent: '#007acc'
+  ui_tool: '#3794b5'
+  ui_thinking: '#6a6a6a'
+  banner_title: '#252526'
+  ui_primary: '#252526'
+  banner_text: '#3c3c3c'
+  ui_text: '#3c3c3c'
+  ui_label: '#4f4f4f'
+  banner_dim: '#5f5f5f'
+  banner_border: '#c5c5c5'
+  ui_border: '#c5c5c5'
+  ui_ok: '#008000'
+  ui_warn: '#a15c00'
+  ui_error: '#c72e2e'
+  prompt: '#3c3c3c'
+  input_rule: '#007acc'
+  response_border: '#3794b5'
+  status_bar_bg: '#ededed'
+  status_bar_text: '#3c3c3c'
+  status_bar_good: '#008000'
+  status_bar_warn: '#a15c00'
+  status_bar_bad: '#c72e2e'
+  status_bar_critical: '#a80000'
+  session_label: '#007acc'
+  session_border: '#d4d4d4'
+  diff_added: '#098658'
+  diff_removed: '#a31515'
+  diff_added_word: '#d6f5e3'
+  diff_removed_word: '#f8d7da'
+  syntax_string: '#a31515'
+  syntax_number: '#098658'
+  syntax_keyword: '#0000ff'
+  syntax_comment: '#008000'
+  completion_menu_bg: '#f3f3f3'
+  completion_menu_current_bg: '#e4e6f1'
+  completion_menu_meta_bg: '#eeeeee'
+branding:
+  agent_name: Hermes Agent
+  prompt_symbol: ❯
+  help_header: Hermes Commands
+tool_prefix: │
