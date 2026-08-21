@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+.AppleDouble
+._*
+
+# Editors
+.idea/
+*.swp
+*.swo
+*~
+.vscode/*
+!.vscode/extensions.json
+
+# Local Hermes checkouts or installs, if placed inside this repo
+hermes-agent/
+.hermes/
+
+# Local-only overrides and scratch work
+*.local
+*.local.yaml
+*.local.sh
+scratch/
+tmp/
+
+# Logs
+*.log
