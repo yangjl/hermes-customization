@@ -13,12 +13,13 @@ desktop_patch_file="$repo_dir/patches/desktop-research-workflow.patch"
 theme_name="hermes-focus"
 
 usage() {
-  echo "Usage: ./install.sh [--theme NAME] [--with-terminal-patch | --with-desktop-patch]"
+  echo "Usage: ./install.sh [--theme NAME] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
   echo "Themes: hermes-focus (default), light-lab"
 }
 
 apply_terminal_patch=false
 apply_desktop_patch=false
+install_desktop_app=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --theme)
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-desktop-patch)
       apply_desktop_patch=true
+      shift
+      ;;
+    --install-desktop-app)
+      install_desktop_app=true
       shift
       ;;
     -h|--help)
@@ -123,4 +128,9 @@ if "$apply_desktop_patch"; then
     echo "Inspect $desktop_patch_file before changing the Hermes source tree." >&2
     exit 1
   fi
+fi
+
+if "$install_desktop_app"; then
+  HERMES_HOME="$hermes_root" HERMES_SOURCE_DIR="$hermes_source" \
+    "$repo_dir/install-desktop-app.sh"
 fi

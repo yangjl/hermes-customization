@@ -18,6 +18,8 @@ source checkout and can be reinstalled after an update.
   larger composer, context-usage indicator, panel sizing, profile switching,
   Light Lab integration, and tests.
 - `install.sh` — installs and activates the theme.
+- `install-desktop-app.sh` — packages, installs, pins, and opens a standalone
+  macOS `Hermes.app`.
 
 ## Install
 
@@ -56,20 +58,41 @@ Once Hermes includes the fix upstream, use the normal `./install.sh` path.
 To reproduce the complete customized Desktop workflow:
 
 ```bash
-./install.sh --theme light-lab --with-desktop-patch
+./install.sh --theme light-lab --with-desktop-patch --install-desktop-app
 ```
 
 The Desktop patch already contains the terminal-theme fix, so do not combine
 `--with-desktop-patch` with `--with-terminal-patch`. Source patches are tied to
 the Hermes version they were created from; the installer checks compatibility
-before applying anything.
+before applying anything. `--install-desktop-app` then builds a standalone
+macOS application, installs it at `/Applications/Hermes.app`, replaces a stale
+development Electron icon in the Dock, and opens Hermes.
+
+The desktop application step can also be run independently after a Hermes
+update or source change:
+
+```bash
+./install-desktop-app.sh
+```
+
+Use an existing package, choose another application location, or leave the
+Dock and launch state unchanged when needed:
+
+```bash
+./install-desktop-app.sh --skip-build --target "$HOME/Applications/Hermes.app" \
+  --no-dock --no-open
+```
+
+The packaged app is a local development build. It is not signed or notarized
+for distribution.
 
 Override install locations when needed:
 
 ```bash
 HERMES_HOME=/path/to/hermes-home \
 HERMES_SOURCE_DIR=/path/to/hermes-agent \
-./install.sh --theme light-lab --with-desktop-patch
+HERMES_DESKTOP_APP_TARGET=/path/to/Applications/Hermes.app \
+./install.sh --theme light-lab --with-desktop-patch --install-desktop-app
 ```
 
 Refresh the dashboard after installation. If the compatibility patch was
@@ -79,9 +102,8 @@ newly applied, restart `hermes dashboard` as well.
 
 1. Install Hermes and configure that computer's credentials normally.
 2. Clone this private repository.
-3. Run `./install.sh --theme light-lab --with-desktop-patch`.
-4. Open Hermes Desktop. If needed, use **Reload desktop plugins** from the
-   command palette.
+3. Run `./install.sh --theme light-lab --with-desktop-patch --install-desktop-app`.
+4. If needed, use **Reload desktop plugins** from the command palette.
 
 API keys, tokens, sessions, and machine-specific launchers are intentionally
 not stored in this repository.
