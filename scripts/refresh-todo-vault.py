@@ -571,7 +571,8 @@ def local_index(kind: str, rows: list[dict], root: Path) -> None:
     write(VAULT / "Projects" / MACHINE / f"{kind} Projects.md", "\n".join(out))
 
 
-def welcome(repos: dict[str, dict], scans: dict[str, list[dict]], recent: list[dict]) -> None:
+def welcome(repos: dict[str, dict], scans: dict[str, list[dict]],
+            recent: list[dict], review: dict[str, int]) -> None:
     owned_recent = [r for r in recent if not r["fork"]]
     year = sorted([r for r in repos.values()
                    if not r["fork"] and CUT_1Y <= r["pushed_at"][:10] < CUT_90],
@@ -594,6 +595,14 @@ def welcome(repos: dict[str, dict], scans: dict[str, list[dict]], recent: list[d
     for kind, rows in scans.items():
         lines.append(f"- [[Projects/{MACHINE}/{kind} Projects]] — {len(rows)} folders under "
                      f"`{SCAN_ROOTS[kind]}`")
+    lines += ["", "## Review status", "",
+              "Only projects marked `active` raise Kanban cards. "
+              "[[Review]] lists every note and is where you change that.", ""]
+    for status in STATUSES:
+        if review.get(status):
+            lines.append(f"- {status}: {review[status]}")
+    if review.get("unreviewed"):
+        lines += ["", f"{review['unreviewed']} notes are still unreviewed."]
     lines += ["", "## Active in the last 90 days", "", "GitHub push dates, forks excluded.", ""]
     for repo in owned_recent:
         lines.append(f"- {link(repo)} — {repo['pushed_at'][:10]}")
@@ -604,6 +613,69 @@ def welcome(repos: dict[str, dict], scans: dict[str, list[dict]], recent: list[d
               "Confirm which repositories are genuinely active, then add a goal and one next "
               "action to each. Create Kanban cards only for work you have decided to do.", ""]
     write(VAULT / "Welcome.md", "\n".join(lines))
+
+
+STATUSES = ("active", "paused", "reference", "archived", "unreviewed")
+
+
+def review_page() -> dict[str, int]:
+    """Every project note grouped by review status, newest activity first.
+
+    Reviewing means opening this page and changing one line in the notes it
+    lists. Unreviewed sits at the bottom because it is the queue, not the
+    answer; active sits at the top because those are the notes that can raise
+    cards.
+    """
+    found: dict[str, list[tuple[str, str, str, bool]]] = {s: [] for s in STATUSES}
+    for note in sorted((VAULT / "Projects").rglob("*.md")):
+        try:
+            text = note.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        status = re.search(r"^knowledge_status:\s*(\S+)\s*$", text, re.M)
+        if not status:
+            continue  # a note you wrote yourself, not part of the review queue
+        relative = str(note.relative_to(VAULT))[:-3]
+        repo = re.search(r'^github_repo:\s*"([^"]*)"\s*$', text, re.M)
+        when = re.search(r'^(?:pushed_at|activity_date):\s*"([^"]*)"\s*$', text, re.M)
+        found.setdefault(status.group(1), []).append((
+            relative, repo.group(1) if repo else "",
+            when.group(1) if when else "", bool(re.search(r"`t_[0-9a-f]+`", text)),
+        ))
+
+    counts = {s: len(v) for s, v in found.items() if v}
+    total = sum(counts.values())
+    out = ["---", "generated: refresh-todo-vault.py", f"note_count: {total}",
+           f'updated: "{TODAY.isoformat()}"', "---", "", "# Review", "",
+           "Every project note, grouped by review status. To change one, open the note",
+           "and edit `knowledge_status` in its frontmatter:", "",
+           "| Status | Meaning |", "|---|---|",
+           "| `active` | Being worked on. A push raises a Kanban card. |",
+           "| `paused` | Real, but not now. |",
+           "| `reference` | Kept for lookup; no work expected. |",
+           "| `archived` | Finished or abandoned. |",
+           "| `unreviewed` | Not yet decided. |", "",
+           "Only `active` raises cards, so the review queue below is what controls",
+           "how noisy the board gets.", ""]
+
+    for status in STATUSES:
+        entries = found.get(status) or []
+        if not entries:
+            continue
+        entries.sort(key=lambda e: (e[2] or "", e[0]), reverse=True)
+        out += ["", f"## {status.title()} — {len(entries)}", "",
+                "| Note | Repository | Activity | Cards |", "|---|---|---|---|"]
+        for relative, repo, when, carded in entries:
+            name = relative.split("/")[-1]
+            out.append(f"| [[{relative}\\|{name}]] | {repo or '—'} | "
+                       f"{when or '—'} | {'yes' if carded else '—'} |")
+
+    out += ["", "## How to review", "",
+            "1. Work down the unreviewed list.",
+            "2. Set `knowledge_status` on each note.",
+            "3. For anything active, write a goal and one next action.", ""]
+    write(VAULT / "Review.md", "\n".join(out))
+    return counts
 
 
 # --------------------------------------------------------------------------
@@ -704,10 +776,10 @@ def main() -> int:
     for kind, rows in scans.items():
         local_notes(kind, rows, SCAN_ROOTS[kind])
         local_index(kind, rows, SCAN_ROOTS[kind])
-    welcome(repos, scans, recent)
-
     # After the notes exist, so a card's link lands in the fresh note.
     raised = raise_cards(repos, previous)
+    # Review counts feed the Welcome page, so build that page first.
+    welcome(repos, scans, recent, review_page())
 
     lines = report(repos, scans, previous, raised)
     lines += ["", sync()]
