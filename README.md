@@ -98,6 +98,17 @@ HERMES_DESKTOP_APP_TARGET=/path/to/Applications/Hermes.app \
 Refresh the dashboard after installation. If the compatibility patch was
 newly applied, restart `hermes dashboard` as well.
 
+## Todo MVP
+
+Hermes already ships a durable Kanban board, so the Todo MVP uses that instead
+of maintaining a second task database or plugin. Enable **Kanban** under
+**Settings → Plugins**, then open **Kanban** from the sidebar. This machine uses
+the `todos` board, displayed as **Todo Dashboard**; add fields or integrations
+only after the native board proves insufficient.
+
+Project knowledge lives in an Obsidian vault rather than in this repository, so
+notes and inventories stay out of version control.
+
 ## Set up another computer
 
 1. Install Hermes and configure that computer's credentials normally.
