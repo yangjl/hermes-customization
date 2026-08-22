@@ -1,0 +1,4 @@
+name: telegram-idea-capture
+description: Turn a Telegram message into an inbox card without waking the agent
+events:
+  - agent:start
