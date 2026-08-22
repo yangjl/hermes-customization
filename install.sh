@@ -9,6 +9,7 @@ skin_target_dir="$hermes_root/skins"
 desktop_plugin_target_dir="$hermes_root/desktop-plugins/research-dashboard"
 web_report_target_dir="$hermes_root/research-report"
 script_target_dir="$hermes_root/scripts"
+hook_target_dir="$hermes_root/hooks/telegram-idea-capture"
 patch_file="$repo_dir/patches/terminal-theme-fields.patch"
 desktop_patch_file="$repo_dir/patches/desktop-research-workflow.patch"
 theme_name="hermes-focus"
@@ -88,6 +89,13 @@ install -d "$script_target_dir"
 install -m 0755 "$repo_dir/scripts/refresh-todo-vault.py" \
   "$script_target_dir/refresh-todo-vault.py"
 echo "Installed vault refresh script to $script_target_dir"
+
+install -d "$hook_target_dir"
+install -m 0644 "$repo_dir/hooks/telegram-idea-capture/HOOK.yaml" \
+  "$hook_target_dir/HOOK.yaml"
+install -m 0644 "$repo_dir/hooks/telegram-idea-capture/handler.py" \
+  "$hook_target_dir/handler.py"
+echo "Installed Telegram capture hook to $hook_target_dir"
 
 if command -v hermes >/dev/null 2>&1; then
   hermes config set dashboard.theme "$theme_name"

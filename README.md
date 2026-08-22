@@ -13,6 +13,7 @@ source checkout and can be reinstalled after an update.
 - `docs/hermes-focus-design.md` — audit, design rationale, and validation plan.
 - `plugins/` — reserved for web-dashboard plugins.
 - `scripts/refresh-todo-vault.py` — weekly refresh for the Obsidian project vault.
+- `hooks/telegram-idea-capture/` — turns a Telegram message into an inbox card.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
@@ -154,6 +155,38 @@ path. `TODO_BOARD` selects the Kanban board, and `TODO_CARDS=0` turns card
 creation off for a run. Reading private repositories needs a `GITHUB_TOKEN` in
 `.env` with metadata read access; the script also accepts `GITHUB_TOKEN_<NAME>`
 for several accounts.
+
+## Capturing ideas from Telegram
+
+Not every idea is a repository. `hooks/telegram-idea-capture/` catches the ones
+that arrive while you are away from a keyboard: message the bot `idea: …` and
+the text becomes a card on a separate `inbox` board.
+
+It is capture-only. No model runs, nothing is interpreted, and the card holds
+what you typed verbatim — deciding what an idea means is something you do later,
+against the board. Cards land in `todo` rather than `triage`, because a board
+with `kanban.auto_decompose` enabled has a decomposer that would rewrite them.
+
+The hook runs inside the gateway, so it only captures while the gateway is
+running. That makes an always-on machine the right host.
+
+Set up Telegram first (`hermes setup` walks through the BotFather token), then
+add to `.env`:
+
+```bash
+TELEGRAM_CAPTURE_USERS=<your numeric Telegram user id>
+```
+
+Capture stays off until that line exists — a bot token is a public endpoint, so
+the allowlist is the gate. Two optional settings: `TELEGRAM_CAPTURE_BOARD`
+(default `inbox`) and `TELEGRAM_CAPTURE_PREFIX` (default `idea:,todo:,note:`,
+or `*` to capture every message). The board is created on first use.
+
+Review what you captured with:
+
+```bash
+hermes kanban --board inbox list
+```
 
 ## Set up another computer
 
