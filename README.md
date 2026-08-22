@@ -125,8 +125,13 @@ inventories stay out of this repository.
 `scripts/refresh-todo-vault.py` keeps that vault current. Each run reads
 repository metadata from the GitHub API for the tracked accounts, scans this
 machine's project folders, rewrites the inventory notes, then commits and pushes
-the vault. It never clones a repository and never creates a Kanban card —
-deciding what becomes work stays manual.
+the vault. It never clones a repository.
+
+It raises a Kanban card when a repository whose note says
+`knowledge_status: active` has been pushed since the previous run. Reviewing a
+project is therefore what opts it into the board; unreviewed repositories stay
+silent however often they are pushed. An idempotency key holds this to one card
+per repository per calendar month, so a busy week cannot flood the board.
 
 Run it by hand:
 
@@ -142,12 +147,13 @@ hermes cron create "0 15 * * 0" "Summarize the refresh output above." \
   --script refresh-todo-vault.py --name "Weekly todo vault refresh"
 ```
 
-Two environment variables change its behavior. `TODO_MACHINE` names the vault
+Four environment variables change its behavior. `TODO_MACHINE` names the vault
 folder that receives this machine's local scans, so two machines never overwrite
 each other. `TODO_VAULT` points at a vault somewhere other than the default
-path. Reading private repositories needs a `GITHUB_TOKEN` in `.env` with
-metadata read access; the script also accepts `GITHUB_TOKEN_<NAME>` for several
-accounts.
+path. `TODO_BOARD` selects the Kanban board, and `TODO_CARDS=0` turns card
+creation off for a run. Reading private repositories needs a `GITHUB_TOKEN` in
+`.env` with metadata read access; the script also accepts `GITHUB_TOKEN_<NAME>`
+for several accounts.
 
 ## Set up another computer
 

@@ -8,6 +8,10 @@ folder named for this machine, so two machines never overwrite each other.
 Generated notes are replaced on every run. Notes you write yourself are left
 alone — keep your own thinking in your own note and link to the inventory note.
 
+A repository you have marked ``knowledge_status: active`` raises a Kanban card
+when it is pushed. Nothing else does. Marking a repository active is the opt-in;
+repositories you have not reviewed stay silent no matter how busy they are.
+
 Prints a short report of what changed since the previous run. Exits non-zero
 only when the vault could not be refreshed at all.
 """
@@ -32,6 +36,8 @@ SCAN_ROOTS = {
     "Website": Path("~/Documents/website").expanduser(),
 }
 STATE = Path("~/.hermes/cache/todo-vault-state.json").expanduser()
+BOARD = os.environ.get("TODO_BOARD", "todos")
+CARDS_ENABLED = os.environ.get("TODO_CARDS", "1") != "0"
 
 TODAY = datetime.date.today()
 CUT_90 = (TODAY - datetime.timedelta(days=90)).isoformat()
@@ -248,6 +254,98 @@ def local_date(row: dict) -> str:
     if not row["last_epoch"]:
         return "—"
     return datetime.datetime.fromtimestamp(row["last_epoch"]).strftime("%Y-%m-%d")
+
+
+# --------------------------------------------------------------------------
+# Kanban — cards for repositories you marked active
+# --------------------------------------------------------------------------
+
+def active_repos() -> dict[str, Path]:
+    """Repositories marked active in the vault, mapped to the note that says so.
+
+    Marking a note active is the whole opt-in. A repository nobody has reviewed
+    never raises a card, however often it is pushed.
+    """
+    found: dict[str, Path] = {}
+    for note in (VAULT / "Projects").rglob("*.md"):
+        try:
+            text = note.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        status = re.search(r"^knowledge_status:\s*(\S+)\s*$", text, re.M)
+        repo = re.search(r'^github_repo:\s*"([^"]+)"\s*$', text, re.M)
+        if status and status.group(1) == "active" and repo and repo.group(1):
+            found.setdefault(repo.group(1), note)
+    return found
+
+
+def create_card(repo: dict, note: Path) -> str | None:
+    """One card for one month of pushes on one repository.
+
+    The idempotency key carries the month, so a repository pushed ten times in
+    January still has exactly one January card, and February gets a fresh one.
+    Kanban enforces this, not us — a repeated key returns the existing id.
+    """
+    full = f"{repo['owner']}/{repo['name']}"
+    pushed = repo["pushed_at"][:10]
+    key = f"push:{full}:{pushed[:7]}"
+    body = "\n".join([
+        f"{full} was pushed on {pushed}.",
+        "",
+        f"GitHub: {repo['html_url']}",
+        f"Note: {note.relative_to(VAULT)}",
+        "",
+        "Raised because the project note is marked active. Decide what the push",
+        "means for your next action, then complete or archive this card.",
+    ])
+    try:
+        result = subprocess.run(
+            ["hermes", "kanban", "--board", BOARD, "create",
+             f"{full} — pushed {pushed}", "--body", body,
+             "--idempotency-key", key, "--created-by", "vault-refresh", "--json"],
+            capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            return None
+        return json.loads(result.stdout)["id"]
+    except Exception:
+        return None
+
+
+def link_card(note: Path, card_id: str, title: str) -> None:
+    """Record the card id in its note, so the note names its own work."""
+    text = note.read_text(encoding="utf-8")
+    if card_id in text:
+        return
+    entry = f"- `{card_id}` — {title}"
+    if "## Kanban tasks" in text:
+        text = re.sub(r"(## Kanban tasks\n\n)", rf"\1{entry}\n", text, count=1)
+    else:
+        text = text.rstrip() + (
+            f"\n\n## Kanban tasks\n\n{entry}\n\n"
+            f"Board: `{BOARD}`. Inspect with "
+            f"`hermes kanban --board {BOARD} show {card_id}`.\n")
+    note.write_text(text, encoding="utf-8")
+
+
+def raise_cards(repos: dict[str, dict], previous: dict[str, str]) -> list[str]:
+    """Card the active repositories that have been pushed since the last run."""
+    if not CARDS_ENABLED:
+        return []
+    watched = active_repos()
+    raised: list[str] = []
+    for full, note in sorted(watched.items()):
+        repo = repos.get(full)
+        if not repo:
+            continue
+        was = previous.get(full)
+        if was is None or repo["pushed_at"] == was:
+            continue
+        card_id = create_card(repo, note)
+        if card_id:
+            title = f"pushed {repo['pushed_at'][:10]}"
+            link_card(note, card_id, title)
+            raised.append(f"{full} → {card_id}")
+    return raised
 
 
 # --------------------------------------------------------------------------
@@ -512,15 +610,18 @@ def welcome(repos: dict[str, dict], scans: dict[str, list[dict]], recent: list[d
 # report + sync
 # --------------------------------------------------------------------------
 
-def report(repos: dict[str, dict], scans: dict[str, list[dict]]) -> list[str]:
-    previous = {}
-    if STATE.exists():
-        try:
-            previous = json.loads(STATE.read_text())
-        except Exception:
-            previous = {}
-    seen_before = previous.get("pushed_at", {})
+def load_state() -> dict[str, str]:
+    """Push dates as of the previous run — the baseline for 'what changed'."""
+    if not STATE.exists():
+        return {}
+    try:
+        return json.loads(STATE.read_text()).get("pushed_at", {})
+    except Exception:
+        return {}
 
+
+def report(repos: dict[str, dict], scans: dict[str, list[dict]],
+           seen_before: dict[str, str], raised: list[str]) -> list[str]:
     changed, added = [], []
     for full, repo in repos.items():
         if repo["fork"]:
@@ -547,6 +648,8 @@ def report(repos: dict[str, dict], scans: dict[str, list[dict]]) -> list[str]:
     out = [f"Vault refreshed {TODAY.isoformat()} on {MACHINE}.", ""]
     out.append(f"{len(repos)} GitHub repositories, "
                f"{sum(len(rows) for rows in scans.values())} local folders.")
+    if raised:
+        out += ["", f"Cards raised on `{BOARD}` ({len(raised)}):"] + [f"  {r}" for r in raised]
     if changed:
         out += ["", f"Pushed since the last refresh ({len(changed)}):"] + [f"  {c}" for c in changed[:12]]
     if added:
@@ -595,6 +698,7 @@ def main() -> int:
         for kind, rows in scans.items() for row in rows if row.get("github_repo")
     }
 
+    previous = load_state()
     github_notes(repos, local_by_repo)
     recent = github_index(repos, local_by_repo)
     for kind, rows in scans.items():
@@ -602,7 +706,10 @@ def main() -> int:
         local_index(kind, rows, SCAN_ROOTS[kind])
     welcome(repos, scans, recent)
 
-    lines = report(repos, scans)
+    # After the notes exist, so a card's link lands in the fresh note.
+    raised = raise_cards(repos, previous)
+
+    lines = report(repos, scans, previous, raised)
     lines += ["", sync()]
     print("\n".join(lines))
     return 0
