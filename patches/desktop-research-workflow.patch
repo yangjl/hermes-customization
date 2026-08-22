@@ -1,78 +1,52 @@
-diff --git a/apps/desktop/src/app/chat/composer/index.tsx b/apps/desktop/src/app/chat/composer/index.tsx
-index 98830fc67..c4fe6b0eb 100644
---- a/apps/desktop/src/app/chat/composer/index.tsx
-+++ b/apps/desktop/src/app/chat/composer/index.tsx
-@@ -5,6 +5,7 @@ import { type ClipboardEvent, type FormEvent, type KeyboardEvent, useCallback, u
- import { useHudComposerDrag } from '@/app/hud/composer-drag'
- import { composerFill, composerFloatingStrip, composerSurfaceGlass } from '@/components/chat/composer-dock'
- import { Button } from '@/components/ui/button'
-+import { ContextUsageRing } from '@/components/ui/context-usage-ring'
- import { Slot as ContribSlot } from '@/contrib/react/slot'
- import { useI18n } from '@/i18n'
- import { chatMessageText } from '@/lib/chat-messages'
-@@ -12,6 +13,8 @@ import { PR_COMMENT_URL_RE } from '@/lib/chat-runtime'
- import { sanitizeComposerInput } from '@/lib/composer-input-sanitize'
- import { DATA_IMAGE_URL_RE } from '@/lib/embedded-images'
- import { triggerHaptic } from '@/lib/haptics'
-+import { contextUsagePercent } from '@/lib/statusbar'
-+import { useStoreSelector } from '@/lib/use-session-slice'
- import { cn } from '@/lib/utils'
- import { interceptsTypedVoiceStop } from '@/lib/voice-stop-word'
- import { sessionCompacting } from '@/store/compaction'
-@@ -21,10 +24,12 @@ import { parkQueuedPrompts, removeQueuedPrompt, unparkQueuedPrompts } from '@/st
- import { $hudMode } from '@/store/hud'
- import { sessionBlockingPrompt } from '@/store/prompts'
- import { toggleReview } from '@/store/review'
--import { $gatewayState } from '@/store/session'
-+import { $currentUsage, $gatewayState } from '@/store/session'
-+import { $sessionStates } from '@/store/session-states'
- import { $threadScrolledUp } from '@/store/thread-scroll'
- import { $autoSpeakReplies } from '@/store/voice-prefs'
- import { useTheme } from '@/themes'
-+import type { UsageStats } from '@/types/hermes'
- 
- import { AttachmentList } from './attachments'
- import {
-@@ -82,6 +87,8 @@ import { UrlDialog } from './url-dialog'
- import { chipTypedUrlOnSpace, linkifyUrls } from './url-refs'
- import { VoiceActivity, VoicePlaybackActivity } from './voice-activity'
- 
-+const EMPTY_USAGE: UsageStats = { calls: 0, input: 0, output: 0, total: 0 }
-+
- export function ChatBar({
-   busy,
-   cwd,
-@@ -150,6 +157,9 @@ export function ChatBar({
-   // focus-bus key, and awaiting-input edge. Main scope = the legacy globals.
-   const scope = useComposerScope()
-   const attachments = useStore(scope.attachments.$attachments)
-+  const primaryUsage = useStore($currentUsage)
-+  const tileUsage = useStoreSelector($sessionStates, states => (sessionId ? (states[sessionId]?.usage ?? null) : null))
-+  const contextPercent = contextUsagePercent(scope.target === 'main' ? primaryUsage : (tileUsage ?? EMPTY_USAGE))
-   const compacting = useStore(useMemo(() => sessionCompacting(sessionId ?? null), [sessionId]))
-   const scrolledUp = useStore($threadScrolledUp)
-   const autoSpeak = useStore($autoSpeakReplies)
-@@ -1331,6 +1341,15 @@ export function ChatBar({
-                     </div>
-                     <div className="min-w-0 [grid-area:input]">{input}</div>
-                     <div className="flex min-w-0 items-center justify-end gap-(--composer-control-gap) [grid-area:controls]">
-+                      {contextPercent !== null && (
-+                        <span
-+                          className="mr-0.5 inline-flex shrink-0 items-center gap-1 text-[0.6875rem] tabular-nums text-(--ui-text-secondary)"
-+                          data-slot="composer-context-usage"
-+                        >
-+                          <ContextUsageRing percent={contextPercent} />
-+                          <span>{contextPercent}%</span>
-+                        </span>
-+                      )}
-                       <ContribSlot area={COMPOSER_AREAS.actions} />
-                       {controls}
-                     </div>
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index 868b11670..9044c8adf 100644
+index fe11212..8d88bbe 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
-@@ -1518,7 +1518,7 @@ export function ChatSidebar({
+@@ -153,6 +153,7 @@ import { ProfileRail } from './profile-switcher'
+ import { ProjectDialog } from './project-dialog'
+ import {
+   excludeProjectSessions,
++  foldProjectOverview,
+   liveSessionProjectId,
+   orderProjectsByIds,
+   overlayLiveLanes,
+@@ -436,6 +437,7 @@ export function ChatSidebar({
+   const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
+   const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
+   const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
++  const [projectsExpanded, setProjectsExpanded] = useState(false)
+   const messagingOpenIds = useStore($sidebarMessagingOpenIds)
+   // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
+   const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
+@@ -1110,6 +1112,11 @@ export function ChatSidebar({
+   // The project overview (drill-in list) vs. the entered project's content.
+   const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
+ 
++  const foldedProjectOverview = useMemo(
++    () => foldProjectOverview(projectOverview ?? [], projectsExpanded),
++    [projectOverview, projectsExpanded]
++  )
++
+   // Preview rows come from the backend tree (each project carries its
+   // most-recent sessions), overlaid with live $sessions so a just-created
+   // session shows under its project instantly (and with its working arc),
+@@ -1441,7 +1448,14 @@ export function ChatSidebar({
+ 
+   // Persist the new project overview order (drag-to-reorder); orderByIds applies
+   // it over the default sort, so stale/new ids reconcile on the next render.
+-  const reorderProjects = (ids: string[]) => setSidebarProjectOrderIds(ids)
++  const reorderProjects = (ids: string[]) => {
++    const reordered = new Set(ids)
++
++    setSidebarProjectOrderIds([
++      ...ids,
++      ...projectModel.filter(project => !project.isNoProject && !reordered.has(project.id)).map(project => project.id)
++    ])
++  }
+ 
+   // Sortable rows carry live session ids; the pinned store is keyed by durable
+   // (lineage-root) ids, so translate before persisting the new order.
+@@ -1522,7 +1536,7 @@ export function ChatSidebar({
                      }
                      type="button"
                    >
@@ -81,8 +55,159 @@ index 868b11670..9044c8adf 100644
                      <span className="min-w-0 flex-1 truncate">{s.nav[item.id] ?? item.label}</span>
                      {isNewSession && (
                        <KbdGroup
+@@ -1676,7 +1690,19 @@ export function ChatSidebar({
+                   )
+                 }
+                 footer={
+-                  // Hidden only when workspace-grouped — those groups page
++                  projectOverview && foldedProjectOverview.hiddenCount > 0 ? (
++                    <Button
++                      className="mx-2 mt-1 h-7 w-[calc(100%-1rem)] justify-center gap-1 text-(--ui-text-secondary)"
++                      onClick={() => setProjectsExpanded(expanded => !expanded)}
++                      size="sm"
++                      variant="ghost"
++                    >
++                      <Codicon name={projectsExpanded ? 'chevron-up' : 'chevron-down'} size="0.75rem" />
++                      {projectsExpanded
++                        ? t.common.collapse
++                        : s.showMoreIn(foldedProjectOverview.hiddenCount, sessionsLabel)}
++                    </Button>
++                  ) : // Hidden only when workspace-grouped — those groups page
+                   // themselves. Profile groups don't: this one footer fetches the
+                   // next page, which grows every profile at once.
+                   !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
+@@ -1810,7 +1836,7 @@ export function ChatSidebar({
+                   inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
+                 }
+                 projectContent={inProject ? enteredProjectContent : undefined}
+-                projectOverview={projectOverview}
++                projectOverview={projectOverview ? foldedProjectOverview.projects : undefined}
+                 projectOverviewPreviews={overviewPreviews}
+                 projectRepoWorktrees={inProject ? scopedRepoWorktrees : undefined}
+                 projectsLoading={worktreeGroupingActive ? projectTreeLoading : false}
+diff --git a/apps/desktop/src/app/chat/sidebar/projects/index.ts b/apps/desktop/src/app/chat/sidebar/projects/index.ts
+index fb242fe..391cb83 100644
+--- a/apps/desktop/src/app/chat/sidebar/projects/index.ts
++++ b/apps/desktop/src/app/chat/sidebar/projects/index.ts
+@@ -1,7 +1,9 @@
+ // Public surface of the project/worktree sidebar, consumed by the sidebar root.
+ export { EnteredProjectContent } from './entered-content'
+ export {
++  foldProjectOverview,
+   orderProjectsByIds,
++  PROJECT_OVERVIEW_COUNT,
+   PROJECT_PREVIEW_COUNT,
+   projectTreeCwd,
+   sortProjectsForOverview,
+diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
+index 8035686..baf3fe8 100644
+--- a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
++++ b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from 'vitest'
+ 
+-import { orderProjectsByIds, sortProjectsForOverview } from './model'
++import { foldProjectOverview, orderProjectsByIds, sortProjectsForOverview } from './model'
+ import { NO_PROJECT_ID, type SidebarProjectTree } from './workspace-groups'
+ 
+ function makeProject(id: string, sessionCount: number): SidebarProjectTree {
+@@ -76,3 +76,13 @@ describe('sortProjectsForOverview', () => {
+     expect(ids(sortProjectsForOverview(projects, 'active'))).toEqual([NO_PROJECT_ID, 'active', 'scanned'])
+   })
+ })
++
++describe('foldProjectOverview', () => {
++  it('keeps Home plus five projects and reveals the rest on demand', () => {
++    const projects = [home(), ...Array.from({ length: 7 }, (_, index) => makeProject(String(index + 1), 1))]
++
++    expect(ids(foldProjectOverview(projects, false).projects)).toEqual([NO_PROJECT_ID, '1', '2', '3', '4', '5'])
++    expect(foldProjectOverview(projects, false).hiddenCount).toBe(2)
++    expect(foldProjectOverview(projects, true).projects).toBe(projects)
++  })
++})
+diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.ts b/apps/desktop/src/app/chat/sidebar/projects/model.ts
+index 0836a08..b789f44 100644
+--- a/apps/desktop/src/app/chat/sidebar/projects/model.ts
++++ b/apps/desktop/src/app/chat/sidebar/projects/model.ts
+@@ -16,6 +16,9 @@ export const SIDEBAR_GROUP_PAGE = 5
+ // Recent sessions previewed under each project in the overview.
+ export const PROJECT_PREVIEW_COUNT = 3
+ 
++// Recent projects shown before the overview folds older rows.
++export const PROJECT_OVERVIEW_COUNT = 5
++
+ // Max concurrent `git worktree list` probes when a project spans many repos.
+ const WORKTREE_PROBE_CONCURRENCY = 4
+ 
+@@ -117,6 +120,20 @@ export function orderProjectsByIds(projects: SidebarProjectTree[], orderIds: str
+   ])
+ }
+ 
++export function foldProjectOverview(
++  projects: SidebarProjectTree[],
++  expanded: boolean,
++  limit = PROJECT_OVERVIEW_COUNT
++): { hiddenCount: number; projects: SidebarProjectTree[] } {
++  const homeOffset = projects[0]?.isNoProject ? 1 : 0
++  const hiddenCount = Math.max(0, projects.length - homeOffset - limit)
++
++  return {
++    hiddenCount,
++    projects: expanded || hiddenCount === 0 ? projects : projects.slice(0, homeOffset + limit)
++  }
++}
++
+ // Project drill-in lanes are git-driven: source them from `git worktree list` so
+ // linked worktrees still appear even when their sessions aren't in the recents
+ // payload currently loaded in memory.
+diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
+new file mode 100644
+index 0000000..8a0b264
+--- /dev/null
++++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
+@@ -0,0 +1,40 @@
++import { act, cleanup, render } from '@testing-library/react'
++import { StrictMode } from 'react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++import { $activeGatewayProfile } from '@/store/profile'
++
++import { useOnProfileSwitch } from './use-on-profile-switch'
++
++function Harness({ onSwitch }: { onSwitch: () => void }) {
++  useOnProfileSwitch(onSwitch)
++
++  return null
++}
++
++describe('useOnProfileSwitch', () => {
++  beforeEach(() => {
++    $activeGatewayProfile.set('default')
++  })
++
++  afterEach(() => {
++    cleanup()
++    $activeGatewayProfile.set('default')
++  })
++
++  it('does not report the StrictMode effect replay as a profile switch', () => {
++    const onSwitch = vi.fn()
++
++    render(
++      <StrictMode>
++        <Harness onSwitch={onSwitch} />
++      </StrictMode>
++    )
++
++    expect(onSwitch).not.toHaveBeenCalled()
++
++    act(() => $activeGatewayProfile.set('research'))
++
++    expect(onSwitch).toHaveBeenCalledOnce()
++  })
++})
 diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-index dfdfd84f2..2c256901c 100644
+index dfdfd84..2c25690 100644
 --- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
 +++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
 @@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
@@ -111,7 +236,7 @@ index dfdfd84f2..2c256901c 100644
      // Fire on profile change only; onSwitch identity is intentionally ignored.
      // eslint-disable-next-line react-hooks/exhaustive-deps
 diff --git a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
-index 65e770819..8801e50a6 100644
+index 65e7708..80b4214 100644
 --- a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
 +++ b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
 @@ -10,12 +10,13 @@ import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
@@ -129,7 +254,32 @@ index 65e770819..8801e50a6 100644
  import { useStoreSelector } from '@/lib/use-session-slice'
  import { cn } from '@/lib/utils'
  import { resolveVersionStatus } from '@/lib/version-status'
-@@ -264,8 +265,7 @@ export function useStatusbarItems({
+@@ -37,7 +38,6 @@ import {
+   sessionMatchesStoredId
+ } from '@/store/session'
+ import { $focusedRuntimeId, $focusedSessionState, $focusedStoredSessionId } from '@/store/session-states'
+-import { $statusbarHiddenIds } from '@/store/statusbar-prefs'
+ import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
+ import { $gatewayRestarting } from '@/store/system-actions'
+ import {
+@@ -233,13 +233,11 @@ export function useStatusbarItems({
+   // nothing to paint — turning it on looked like it did nothing until you sent
+   // a message. Estimate from the live prompt + transcript instead, on the same
+   // read-only RPC the popover uses, so the readout is right the moment it's on
+-  // screen. Gated on the gauge being shown — the bar itself is unmounted while
+-  // toggled off, so this covers the rest.
+-  const contextItemHidden = useStore($statusbarHiddenIds).includes('context-usage')
+-
++  // screen. The status bar is the gauge's single owner, so its breakdown stays
++  // keyed to the focused session whenever that bar is mounted.
+   const { breakdown: contextBreakdown, loading: contextBreakdownLoading } = useContextBreakdown({
+     busy,
+-    enabled: !contextItemHidden,
++    enabled: true,
+     requestGateway,
+     sessionId: activeSessionId
+   })
+@@ -264,8 +262,7 @@ export function useStatusbarItems({
      [contextBreakdown, currentUsage]
    )
  
@@ -139,7 +289,7 @@ index 65e770819..8801e50a6 100644
  
    const approvalModeItem = useApprovalModeStatusbarItem(activeGatewayProfile, requestGateway)
  
-@@ -543,10 +543,10 @@ export function useStatusbarItems({
+@@ -543,16 +540,15 @@ export function useStatusbarItems({
          variant: 'text'
        },
        {
@@ -153,7 +303,13 @@ index 65e770819..8801e50a6 100644
          menuAlign: 'end',
          menuClassName: 'w-auto border-(--ui-stroke-secondary) p-0',
          menuContent: (
-@@ -588,10 +588,9 @@ export function useStatusbarItems({
+           <ContextUsagePanel breakdown={contextBreakdown} loading={contextBreakdownLoading} usage={gaugeUsage} />
+         ),
+-        toggleLabel: copy.toggleContextUsage,
+         variant: 'menu'
+       },
+       {
+@@ -588,10 +584,9 @@ export function useStatusbarItems({
        busy,
        chatOpen,
        clientVersionItem,
@@ -165,8 +321,233 @@ index 65e770819..8801e50a6 100644
        copy,
        gaugeUsage,
        sessionStartedAt,
+diff --git a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
+index d558c11..d5bd5fe 100644
+--- a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
++++ b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
+@@ -95,20 +95,24 @@ describe('statusbar item visibility', () => {
+     expect(screen.getByText('Plugin thing')).toBeTruthy()
+   })
+ 
+-  it('starts the per-turn session readouts hidden and restores them from the menu', async () => {
++  it('keeps the context meter visible while the optional timers start hidden', async () => {
+     const statusbar = bar([
+       item('running-timer', 'Turn timer', { variant: 'text' }),
+-      item('context-usage', 'Context meter', { variant: 'menu' }),
++      item('context-usage', 'Context meter', { toggleLabel: undefined, variant: 'menu' }),
+       item('session-timer', 'Session timer', { variant: 'text' }),
+       item('gateway-health', 'Gateway')
+     ])
+ 
+-    for (const label of ['Turn timer', 'Context meter', 'Session timer']) {
++    for (const label of ['Turn timer', 'Session timer']) {
+       expect(screen.queryByText(label)).toBeNull()
+     }
+ 
++    expect(within(statusbar).getByText('Context meter')).toBeTruthy()
++
+     openContextMenu(statusbar)
+ 
++    expect(screen.queryByRole('menuitemcheckbox', { name: 'Context meter' })).toBeNull()
++
+     const row = await screen.findByRole('menuitemcheckbox', { name: 'Session timer' })
+     fireEvent.click(row)
+ 
+diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+index b2c94ec..597f860 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+@@ -68,7 +68,6 @@ import {
+   type ToolTitleAction
+ } from './fallback-model'
+ import { isToolCallPart, summarizeToolRun } from './run-summary'
+-import { ToolRunTicker } from './run-ticker'
+ 
+ // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
+ // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
+@@ -369,7 +368,9 @@ function ToolEntry({ part }: ToolEntryProps) {
+   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
+   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
+   const isFileEdit = isFileEditTool(toolName)
+-  const defaultOpen = Boolean(inlineDiff)
++  // A live diff is progress, not the handoff: keep it to one quiet row until
++  // the user asks. Once the turn settles, the finished edit opens as before.
++  const defaultOpen = Boolean(inlineDiff) && !messageRunning
+   const open = useDisclosureOpen(disclosureId, defaultOpen)
+   const canDismiss = !isPending && !embedded
+   // Only animate entries that mount while their message is actively
+@@ -782,18 +783,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
+   return items
+ }
+ 
+-/**
+- * The live run, as one line.
+- *
+- * A run in progress shows only what it is doing right now; each new action
+- * slides the one before it up and out of a single-line window, so a turn that
+- * touches thirty files reads as one line ticking over in place instead of a
+- * list growing down the page. When the run settles the ticker goes away and
+- * the summary above it is all that's left.
+- */
+ // The one grey line that stands in for a run of tool calls — "Explored 3
+-// files, ran 5 commands". Live, it narrates in the present tense above the
+-// ticker and offers no toggle, since there is nothing settled to unfold yet.
++// files, ran 5 commands". Live, it narrates in the present tense; details stay
++// behind the same disclosure as settled history.
+ function ToolRunHeader({
+   completedAt,
+   live,
+@@ -913,9 +905,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+  * index is what made an earlier attempt at this reshuffle the moment a turn
+  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
+  *
+- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
+- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
+- * row still owns its own chrome (timer / copy / approval) when shown.
++ * Live or settled, the summary is the whole of it until the user opens it.
++ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
++ * copy / approval) when shown.
+  */
+ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
+   children,
+@@ -942,14 +934,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+     return <>{children}</>
+   }
+ 
+-  // Two things a one-line window can't hold. An approval is a question the
+-  // user has to answer, and expanded output is one they went looking for —
+-  // both would tick straight past, or be sliced to a single line, as the run
+-  // keeps going. Either one hands the run back its full height until the run
+-  // settles and the row can be reached through the summary instead.
++  // Keep live activity as quiet as settled history: the summary stays visible,
++  // while call details are one click away. Approval remains the sole exception
++  // because a question that needs the user must never be hidden.
+   const blocked = Boolean(approval) && pendingApprovalTool
+-  const unfurled = blocked || rowOpen
+-  const expanded = live ? unfurled : (persistedOpen ?? false)
++  const expanded = blocked || rowOpen || (persistedOpen ?? false)
+ 
+   return (
+     <div
+@@ -961,12 +950,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+       <ToolRunHeader
+         completedAt={completedAt}
+         live={live}
+-        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
++        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
+         open={expanded}
+         startedAt={startedAt}
+         summary={summary}
+       />
+-      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
+       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
+     </div>
+   )
+diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+index 5d66c9d..7d178f2 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
+       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
+     })
+   })
++
++  it('folds a live diff until requested', async () => {
++    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
++    const { container } = render(<GroupHarness message={message} />)
++
++    const toggle = await waitFor(() => {
++      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
++      expect(button).not.toBeNull()
++
++      return button as HTMLButtonElement
++    })
++
++    expect(container.querySelector('[data-file-edit]')).toBeNull()
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
++  })
+ })
+ 
+ // The transcript rests its scaffolding at a fade, keyed off one attribute. A
+@@ -470,56 +488,40 @@ describe('transcript fade', () => {
+ })
+ 
+ describe('live tool run', () => {
+-  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
++  it('keeps running details folded behind a summary', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+ 
+     await waitFor(() => {
+-      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+     })
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+ 
+-  it('cannot be collapsed while a tool is still running', async () => {
++  it('expands and collapses running details on request', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+ 
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+-    })
++    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
++    fireEvent.click(toggle)
+ 
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
++    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('true')
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+   })
+ 
+   // Liveness used to also require an unresolved call, which is false for the
+   // instant between one sequential call finishing and the next arriving — so a
+-  // string of commands settled and re-opened between every one, unmounting the
+-  // ticker and dropping its reel back to the first row instead of scrolling.
++  // string of commands briefly switched to settled language between calls.
+   it('stays live in the gap between two sequential calls', async () => {
+     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+ 
+     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
+-    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
+-  })
+-
+-  // The ticker is a one-line window, so a row opened inside it had its output
+-  // sliced to that line and then ticked away by the next call. Opening a row
+-  // is a request to read it: the run gives up the window until it settles.
+-  it('drops the one-line window when a row inside it is opened', async () => {
+-    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+-
+-    await screen.findByText('Running 2 commands')
+-
+-    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
+-
+-    expect(row).not.toBeNull()
+-
+-    fireEvent.click(row as Element)
+-
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
+-    })
+-
+-    // ...and the row it opened is still on screen to be read.
+-    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+ })
+ 
 diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index e0a3772b8..3182a94b9 100644
+index e0a3772..3182a94 100644
 --- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 +++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 @@ -650,9 +650,9 @@ function Sash({
@@ -182,8 +563,64 @@ index e0a3772b8..3182a94b9 100644
          disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
        )}
        onDoubleClick={disabled ? undefined : onDoubleClick}
+diff --git a/apps/desktop/src/components/ui/context-usage-ring.tsx b/apps/desktop/src/components/ui/context-usage-ring.tsx
+new file mode 100644
+index 0000000..703aa7b
+--- /dev/null
++++ b/apps/desktop/src/components/ui/context-usage-ring.tsx
+@@ -0,0 +1,30 @@
++import type { ComponentProps } from 'react'
++
++import { cn } from '@/lib/utils'
++
++interface ContextUsageRingProps extends Omit<ComponentProps<'svg'>, 'children'> {
++  percent: number
++}
++
++/** Compact occupancy ring shared by the composer and status bar. */
++export function ContextUsageRing({ className, percent, ...props }: ContextUsageRingProps) {
++  const bounded = Math.max(0, Math.min(100, Math.round(percent)))
++
++  return (
++    <svg aria-hidden className={cn('size-3', className)} viewBox="0 0 12 12" {...props}>
++      <circle cx="6" cy="6" fill="none" opacity="0.18" r="4.5" stroke="currentColor" strokeWidth="1.5" />
++      <circle
++        cx="6"
++        cy="6"
++        fill="none"
++        pathLength="100"
++        r="4.5"
++        stroke="currentColor"
++        strokeDasharray={`${bounded} 100`}
++        strokeLinecap="round"
++        strokeWidth="1.5"
++        transform="rotate(-90 6 6)"
++      />
++    </svg>
++  )
++}
+diff --git a/apps/desktop/src/lib/statusbar.test.ts b/apps/desktop/src/lib/statusbar.test.ts
+new file mode 100644
+index 0000000..017c669
+--- /dev/null
++++ b/apps/desktop/src/lib/statusbar.test.ts
+@@ -0,0 +1,14 @@
++import { describe, expect, it } from 'vitest'
++
++import { contextUsagePercent } from './statusbar'
++
++describe('contextUsagePercent', () => {
++  it('returns a rounded, bounded percentage when context capacity is known', () => {
++    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 41.4, input: 0, output: 0, total: 0 })).toBe(41)
++    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 140, input: 0, output: 0, total: 0 })).toBe(100)
++  })
++
++  it('returns null before the backend reports a context capacity', () => {
++    expect(contextUsagePercent({ calls: 0, input: 0, output: 0, total: 20 })).toBeNull()
++  })
++})
 diff --git a/apps/desktop/src/lib/statusbar.tsx b/apps/desktop/src/lib/statusbar.tsx
-index 01ca3b645..f89e3a964 100644
+index 01ca3b6..f89e3a9 100644
 --- a/apps/desktop/src/lib/statusbar.tsx
 +++ b/apps/desktop/src/lib/statusbar.tsx
 @@ -41,6 +41,14 @@ export function contextBar(percent: number | undefined, width = 10): string {
@@ -217,11 +654,49 @@ index 01ca3b645..f89e3a964 100644
    return `[${contextBar(usage.context_percent)}] ${pct}%`
  }
  
+diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
+index 584c00a..35b4e5b 100644
+--- a/apps/desktop/src/store/reasoning-disclosure.ts
++++ b/apps/desktop/src/store/reasoning-disclosure.ts
+@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
+ 
+ import { persistBoolean, storedBoolean } from '@/lib/storage'
+ 
+-const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
++const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
+ 
+ /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
+-export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
++export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
+ 
+ $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
+ 
+diff --git a/apps/desktop/src/store/statusbar-prefs.ts b/apps/desktop/src/store/statusbar-prefs.ts
+index 7318e18..12d6da6 100644
+--- a/apps/desktop/src/store/statusbar-prefs.ts
++++ b/apps/desktop/src/store/statusbar-prefs.ts
+@@ -15,13 +15,12 @@ export function toggleStatusbarVisible() {
+ // Items the bar hides until the user turns them on from its context menu. The
+ // bar's job is to answer "is the backend healthy, where am I, what's it doing" —
+ // route shortcuts (cron/webhooks/agents), the terminal toggle, and the approval
+-// pill are navigation, not status, so they start out of the way. The per-turn
+-// session readouts (running/session timers, context meter) are diagnostics most
+-// users don't watch, so they start hidden too and the bar stays quiet mid-turn.
++// pill are navigation, not status, so they start out of the way. The optional
++// per-turn timers are diagnostics most users don't watch, so they start hidden
++// too and the bar stays quiet mid-turn.
+ export const STATUSBAR_HIDDEN_BY_DEFAULT: readonly string[] = [
+   'agents',
+   'approval-mode',
+-  'context-usage',
+   'cron',
+   'running-timer',
+   'session-timer',
 diff --git a/apps/desktop/src/styles.css b/apps/desktop/src/styles.css
-index a65d9168c..43ac4adc9 100644
+index 396ed17..da014b4 100644
 --- a/apps/desktop/src/styles.css
 +++ b/apps/desktop/src/styles.css
-@@ -481,10 +481,14 @@
+@@ -491,10 +491,14 @@
      --composer-ring-strength: 1;
      --composer-surface-pad-x: 0.5rem;
      --composer-surface-pad-y: 0.3125rem;
@@ -239,7 +714,7 @@ index a65d9168c..43ac4adc9 100644
      --composer-surface-measured-height: var(--composer-fallback-height);
      --thread-viewport-height: max(
 diff --git a/apps/desktop/src/themes/skin.test.ts b/apps/desktop/src/themes/skin.test.ts
-index 353a690ad..1c3407ae6 100644
+index 353a690..1c3407a 100644
 --- a/apps/desktop/src/themes/skin.test.ts
 +++ b/apps/desktop/src/themes/skin.test.ts
 @@ -28,6 +28,24 @@ describe('skinToDesktopTheme', () => {
@@ -268,7 +743,7 @@ index 353a690ad..1c3407ae6 100644
      const dark = withColors('d', { background: '#111111', banner_text: '#eeeeee' })!
      const light = withColors('l', { background: '#fafafa', banner_text: '#111111' })!
 diff --git a/apps/desktop/src/themes/skin.ts b/apps/desktop/src/themes/skin.ts
-index 61fa71122..de80ced50 100644
+index 61fa711..de80ced 100644
 --- a/apps/desktop/src/themes/skin.ts
 +++ b/apps/desktop/src/themes/skin.ts
 @@ -54,8 +54,13 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
@@ -319,10 +794,10 @@ index 61fa71122..de80ced50 100644
      muted: mix(background, foreground, dark ? 0.06 : 0.04),
      mutedForeground,
 diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
-index cc2449988..89f162e5f 100644
+index a7dd5fe..6f00d76 100644
 --- a/hermes_cli/web_server.py
 +++ b/hermes_cli/web_server.py
-@@ -17729,6 +17729,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+@@ -17786,6 +17786,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
          result["customCSS"] = custom_css
      if component_styles:
          result["componentStyles"] = component_styles
@@ -334,7 +809,7 @@ index cc2449988..89f162e5f 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 5c1fb1e98..3df731011 100644
+index 5c1fb1e..3df7310 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
 @@ -3636,6 +3636,19 @@ class TestNormaliseThemeExtensions:
@@ -357,105 +832,3 @@ index 5c1fb1e98..3df731011 100644
  
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server import _normalise_theme_definition
-diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
-new file mode 100644
-index 000000000..8a0b26470
---- /dev/null
-+++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
-@@ -0,0 +1,40 @@
-+import { act, cleanup, render } from '@testing-library/react'
-+import { StrictMode } from 'react'
-+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-+
-+import { $activeGatewayProfile } from '@/store/profile'
-+
-+import { useOnProfileSwitch } from './use-on-profile-switch'
-+
-+function Harness({ onSwitch }: { onSwitch: () => void }) {
-+  useOnProfileSwitch(onSwitch)
-+
-+  return null
-+}
-+
-+describe('useOnProfileSwitch', () => {
-+  beforeEach(() => {
-+    $activeGatewayProfile.set('default')
-+  })
-+
-+  afterEach(() => {
-+    cleanup()
-+    $activeGatewayProfile.set('default')
-+  })
-+
-+  it('does not report the StrictMode effect replay as a profile switch', () => {
-+    const onSwitch = vi.fn()
-+
-+    render(
-+      <StrictMode>
-+        <Harness onSwitch={onSwitch} />
-+      </StrictMode>
-+    )
-+
-+    expect(onSwitch).not.toHaveBeenCalled()
-+
-+    act(() => $activeGatewayProfile.set('research'))
-+
-+    expect(onSwitch).toHaveBeenCalledOnce()
-+  })
-+})
-diff --git a/apps/desktop/src/components/ui/context-usage-ring.tsx b/apps/desktop/src/components/ui/context-usage-ring.tsx
-new file mode 100644
-index 000000000..703aa7bad
---- /dev/null
-+++ b/apps/desktop/src/components/ui/context-usage-ring.tsx
-@@ -0,0 +1,30 @@
-+import type { ComponentProps } from 'react'
-+
-+import { cn } from '@/lib/utils'
-+
-+interface ContextUsageRingProps extends Omit<ComponentProps<'svg'>, 'children'> {
-+  percent: number
-+}
-+
-+/** Compact occupancy ring shared by the composer and status bar. */
-+export function ContextUsageRing({ className, percent, ...props }: ContextUsageRingProps) {
-+  const bounded = Math.max(0, Math.min(100, Math.round(percent)))
-+
-+  return (
-+    <svg aria-hidden className={cn('size-3', className)} viewBox="0 0 12 12" {...props}>
-+      <circle cx="6" cy="6" fill="none" opacity="0.18" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-+      <circle
-+        cx="6"
-+        cy="6"
-+        fill="none"
-+        pathLength="100"
-+        r="4.5"
-+        stroke="currentColor"
-+        strokeDasharray={`${bounded} 100`}
-+        strokeLinecap="round"
-+        strokeWidth="1.5"
-+        transform="rotate(-90 6 6)"
-+      />
-+    </svg>
-+  )
-+}
-diff --git a/apps/desktop/src/lib/statusbar.test.ts b/apps/desktop/src/lib/statusbar.test.ts
-new file mode 100644
-index 000000000..017c66951
---- /dev/null
-+++ b/apps/desktop/src/lib/statusbar.test.ts
-@@ -0,0 +1,14 @@
-+import { describe, expect, it } from 'vitest'
-+
-+import { contextUsagePercent } from './statusbar'
-+
-+describe('contextUsagePercent', () => {
-+  it('returns a rounded, bounded percentage when context capacity is known', () => {
-+    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 41.4, input: 0, output: 0, total: 0 })).toBe(41)
-+    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 140, input: 0, output: 0, total: 0 })).toBe(100)
-+  })
-+
-+  it('returns null before the backend reports a context capacity', () => {
-+    expect(contextUsagePercent({ calls: 0, input: 0, output: 0, total: 20 })).toBeNull()
-+  })
-+})

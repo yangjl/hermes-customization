@@ -15,8 +15,8 @@ source checkout and can be reinstalled after an update.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
-  larger composer, context-usage indicator, panel sizing, profile switching,
-  Light Lab integration, and tests.
+  larger composer, context-usage indicator, five-project recent list, panel
+  sizing, profile switching, Light Lab integration, and tests.
 - `install.sh` — installs and activates the theme.
 - `install-desktop-app.sh` — packages, installs, pins, and opens a standalone
   macOS `Hermes.app`.
