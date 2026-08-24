@@ -1,5 +1,5 @@
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index fe11212..8d88bbe 100644
+index fe11212e4..8d88bbe43 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
 @@ -153,6 +153,7 @@ import { ProfileRail } from './profile-switcher'
@@ -86,7 +86,7 @@ index fe11212..8d88bbe 100644
                  projectRepoWorktrees={inProject ? scopedRepoWorktrees : undefined}
                  projectsLoading={worktreeGroupingActive ? projectTreeLoading : false}
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/index.ts b/apps/desktop/src/app/chat/sidebar/projects/index.ts
-index fb242fe..391cb83 100644
+index fb242fe73..391cb8323 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/index.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/index.ts
 @@ -1,7 +1,9 @@
@@ -100,7 +100,7 @@ index fb242fe..391cb83 100644
    projectTreeCwd,
    sortProjectsForOverview,
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
-index 8035686..baf3fe8 100644
+index 8035686f3..baf3fe8bc 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 @@ -1,6 +1,6 @@
@@ -126,7 +126,7 @@ index 8035686..baf3fe8 100644
 +  })
 +})
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.ts b/apps/desktop/src/app/chat/sidebar/projects/model.ts
-index 0836a08..b789f44 100644
+index 0836a089b..b789f4412 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.ts
 @@ -16,6 +16,9 @@ export const SIDEBAR_GROUP_PAGE = 5
@@ -162,7 +162,7 @@ index 0836a08..b789f44 100644
  // payload currently loaded in memory.
 diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 new file mode 100644
-index 0000000..8a0b264
+index 000000000..8a0b26470
 --- /dev/null
 +++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 @@ -0,0 +1,40 @@
@@ -207,7 +207,7 @@ index 0000000..8a0b264
 +  })
 +})
 diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-index dfdfd84..2c25690 100644
+index dfdfd84f2..2c256901c 100644
 --- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
 +++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
 @@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
@@ -236,7 +236,7 @@ index dfdfd84..2c25690 100644
      // Fire on profile change only; onSwitch identity is intentionally ignored.
      // eslint-disable-next-line react-hooks/exhaustive-deps
 diff --git a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
-index 65e7708..80b4214 100644
+index b9d9eff4e..02feba32c 100644
 --- a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
 +++ b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
 @@ -10,12 +10,13 @@ import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
@@ -248,7 +248,7 @@ index 65e7708..80b4214 100644
  import { useI18n } from '@/i18n'
  import { displayPath, pathLeaf } from '@/lib/display-path'
  import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
- import type { RuntimeReadinessResult } from '@/lib/runtime-readiness'
+ import { runtimeReadinessDisplay, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
 -import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
 +import { contextUsagePercent, LiveDuration } from '@/lib/statusbar'
  import { useStoreSelector } from '@/lib/use-session-slice'
@@ -289,7 +289,7 @@ index 65e7708..80b4214 100644
  
    const approvalModeItem = useApprovalModeStatusbarItem(activeGatewayProfile, requestGateway)
  
-@@ -543,16 +540,15 @@ export function useStatusbarItems({
+@@ -545,16 +542,15 @@ export function useStatusbarItems({
          variant: 'text'
        },
        {
@@ -309,7 +309,7 @@ index 65e7708..80b4214 100644
          variant: 'menu'
        },
        {
-@@ -588,10 +584,9 @@ export function useStatusbarItems({
+@@ -590,10 +586,9 @@ export function useStatusbarItems({
        busy,
        chatOpen,
        clientVersionItem,
@@ -322,7 +322,7 @@ index 65e7708..80b4214 100644
        gaugeUsage,
        sessionStartedAt,
 diff --git a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
-index d558c11..d5bd5fe 100644
+index d558c11d1..d5bd5fee7 100644
 --- a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
 +++ b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
 @@ -95,20 +95,24 @@ describe('statusbar item visibility', () => {
@@ -354,7 +354,7 @@ index d558c11..d5bd5fe 100644
      fireEvent.click(row)
  
 diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index b2c94ec..597f860 100644
+index b2c94ecf6..597f86013 100644
 --- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
 +++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
 @@ -68,7 +68,6 @@ import {
@@ -444,7 +444,7 @@ index b2c94ec..597f860 100644
      </div>
    )
 diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-index 5d66c9d..7d178f2 100644
+index 5d66c9d9d..7d178f29a 100644
 --- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
 +++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
 @@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
@@ -547,10 +547,10 @@ index 5d66c9d..7d178f2 100644
  })
  
 diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index e0a3772..3182a94 100644
+index 1e97a661f..e18ec4f46 100644
 --- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 +++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-@@ -650,9 +650,9 @@ function Sash({
+@@ -656,9 +656,9 @@ function Sash({
          // Asymmetric grab band: only 1px reaches into the leading pane so its
          // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
          // swallowed it entirely — the pointer got col-resize instead of the
@@ -565,7 +565,7 @@ index e0a3772..3182a94 100644
        onDoubleClick={disabled ? undefined : onDoubleClick}
 diff --git a/apps/desktop/src/components/ui/context-usage-ring.tsx b/apps/desktop/src/components/ui/context-usage-ring.tsx
 new file mode 100644
-index 0000000..703aa7b
+index 000000000..703aa7bad
 --- /dev/null
 +++ b/apps/desktop/src/components/ui/context-usage-ring.tsx
 @@ -0,0 +1,30 @@
@@ -601,7 +601,7 @@ index 0000000..703aa7b
 +}
 diff --git a/apps/desktop/src/lib/statusbar.test.ts b/apps/desktop/src/lib/statusbar.test.ts
 new file mode 100644
-index 0000000..017c669
+index 000000000..017c66951
 --- /dev/null
 +++ b/apps/desktop/src/lib/statusbar.test.ts
 @@ -0,0 +1,14 @@
@@ -620,7 +620,7 @@ index 0000000..017c669
 +  })
 +})
 diff --git a/apps/desktop/src/lib/statusbar.tsx b/apps/desktop/src/lib/statusbar.tsx
-index 01ca3b6..f89e3a9 100644
+index 01ca3b645..f89e3a964 100644
 --- a/apps/desktop/src/lib/statusbar.tsx
 +++ b/apps/desktop/src/lib/statusbar.tsx
 @@ -41,6 +41,14 @@ export function contextBar(percent: number | undefined, width = 10): string {
@@ -655,7 +655,7 @@ index 01ca3b6..f89e3a9 100644
  }
  
 diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
-index 584c00a..35b4e5b 100644
+index 584c00a57..35b4e5b2b 100644
 --- a/apps/desktop/src/store/reasoning-disclosure.ts
 +++ b/apps/desktop/src/store/reasoning-disclosure.ts
 @@ -2,10 +2,10 @@ import { atom } from 'nanostores'
@@ -672,7 +672,7 @@ index 584c00a..35b4e5b 100644
  $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
  
 diff --git a/apps/desktop/src/store/statusbar-prefs.ts b/apps/desktop/src/store/statusbar-prefs.ts
-index 7318e18..12d6da6 100644
+index 7318e18d7..12d6da621 100644
 --- a/apps/desktop/src/store/statusbar-prefs.ts
 +++ b/apps/desktop/src/store/statusbar-prefs.ts
 @@ -15,13 +15,12 @@ export function toggleStatusbarVisible() {
@@ -693,7 +693,7 @@ index 7318e18..12d6da6 100644
    'running-timer',
    'session-timer',
 diff --git a/apps/desktop/src/styles.css b/apps/desktop/src/styles.css
-index 396ed17..da014b4 100644
+index 53efc2847..9aeac7fd9 100644
 --- a/apps/desktop/src/styles.css
 +++ b/apps/desktop/src/styles.css
 @@ -491,10 +491,14 @@
@@ -714,7 +714,7 @@ index 396ed17..da014b4 100644
      --composer-surface-measured-height: var(--composer-fallback-height);
      --thread-viewport-height: max(
 diff --git a/apps/desktop/src/themes/skin.test.ts b/apps/desktop/src/themes/skin.test.ts
-index 353a690..1c3407a 100644
+index 353a690ad..1c3407ae6 100644
 --- a/apps/desktop/src/themes/skin.test.ts
 +++ b/apps/desktop/src/themes/skin.test.ts
 @@ -28,6 +28,24 @@ describe('skinToDesktopTheme', () => {
@@ -743,7 +743,7 @@ index 353a690..1c3407a 100644
      const dark = withColors('d', { background: '#111111', banner_text: '#eeeeee' })!
      const light = withColors('l', { background: '#fafafa', banner_text: '#111111' })!
 diff --git a/apps/desktop/src/themes/skin.ts b/apps/desktop/src/themes/skin.ts
-index 61fa711..de80ced 100644
+index 61fa71122..de80ced50 100644
 --- a/apps/desktop/src/themes/skin.ts
 +++ b/apps/desktop/src/themes/skin.ts
 @@ -54,8 +54,13 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
@@ -794,10 +794,10 @@ index 61fa711..de80ced 100644
      muted: mix(background, foreground, dark ? 0.06 : 0.04),
      mutedForeground,
 diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
-index a7dd5fe..6f00d76 100644
+index 7444ebf2f..6fb86f1f8 100644
 --- a/hermes_cli/web_server.py
 +++ b/hermes_cli/web_server.py
-@@ -17786,6 +17786,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+@@ -18138,6 +18138,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
          result["customCSS"] = custom_css
      if component_styles:
          result["componentStyles"] = component_styles
@@ -809,10 +809,10 @@ index a7dd5fe..6f00d76 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 5c1fb1e..3df7310 100644
+index 796719a6e..065e08fc7 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -3636,6 +3636,19 @@ class TestNormaliseThemeExtensions:
+@@ -3755,6 +3755,19 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  

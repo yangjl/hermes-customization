@@ -13,6 +13,7 @@ source checkout and can be reinstalled after an update.
 - `docs/hermes-focus-design.md` — audit, design rationale, and validation plan.
 - `plugins/` — reserved for web-dashboard plugins.
 - `scripts/refresh-todo-vault.py` — weekly refresh for the Obsidian project vault.
+- `scripts/reapply-desktop-patch.sh` — restores the Desktop patch after a Hermes update.
 - `hooks/telegram-idea-capture/` — turns a Telegram message into an inbox card.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
   Hermes versions that omit custom terminal colors from dashboard theme data.
@@ -109,6 +110,52 @@ HERMES_DESKTOP_APP_TARGET=/path/to/Applications/Hermes.app \
 
 Refresh the dashboard after installation. If the compatibility patch was
 newly applied, restart `hermes dashboard` as well.
+
+## Surviving a Hermes update
+
+`hermes update` autostashes local source changes, fast-forwards, and rebuilds
+the Desktop app from the clean tree. The customizations are a source patch, so
+every update silently ships a Hermes without them — the context meter, composer
+sizing, and profile switching all revert, and the stashed copy is easy to miss.
+
+`scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies the
+patch with a three-way merge, rebuilds the app, and reinstalls it. It exits
+silently when the patch is already present, so it is safe to run often, and it
+refuses to touch a source tree with uncommitted changes rather than tangling
+work in progress.
+
+Schedule it hourly so an update never leaves an unpatched Hermes for long:
+
+```bash
+hermes cron create "0 * * * *" --no-agent \
+  --script reapply-desktop-patch.sh \
+  --name "Restore Desktop patch after Hermes update"
+```
+
+No model runs — the script is the job, and it only speaks when it did something.
+The job needs a running gateway (`hermes gateway start`). Or run it by hand
+after an update:
+
+```bash
+./scripts/reapply-desktop-patch.sh
+```
+
+When Hermes changes the same lines the patch touches, the three-way merge fails
+and the script restores the tree untouched rather than leaving conflict markers
+in place. That is the signal to resolve the conflict by hand and regenerate:
+
+```bash
+cd "${HERMES_SOURCE_DIR:-$HOME/.hermes/hermes-agent}"
+git apply --3way /path/to/patches/desktop-research-workflow.patch
+# resolve the conflicted files, then:
+git add -A && git reset apps/desktop/index.html
+git diff --cached --binary > /path/to/patches/desktop-research-workflow.patch
+git reset
+```
+
+Keep `apps/desktop/index.html` out of the patch. A packaged build rewrites it
+with hashed asset paths, and capturing that makes the patch reinstall one
+build's bundle names into the next build's source.
 
 ## Todo MVP
 
@@ -210,6 +257,8 @@ To bring the todo workflow along as well:
 5. Create the board: `hermes kanban boards create todos --name "Todo Dashboard" --switch`.
 6. Clone the vault into `~/Documents/WikiHub/`.
 7. Set `TODO_MACHINE` to a name for this computer and schedule the weekly refresh.
+8. Schedule the patch restore job so Hermes updates do not revert the Desktop
+   customizations (see "Surviving a Hermes update").
 
 API keys, tokens, sessions, and machine-specific launchers are intentionally
 not stored in this repository.

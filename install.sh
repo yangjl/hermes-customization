@@ -88,7 +88,10 @@ echo "Installed Research web report to $web_report_target_dir"
 install -d "$script_target_dir"
 install -m 0755 "$repo_dir/scripts/refresh-todo-vault.py" \
   "$script_target_dir/refresh-todo-vault.py"
+install -m 0755 "$repo_dir/scripts/reapply-desktop-patch.sh" \
+  "$script_target_dir/reapply-desktop-patch.sh"
 echo "Installed vault refresh script to $script_target_dir"
+echo "Installed Desktop patch restore script to $script_target_dir"
 
 install -d "$hook_target_dir"
 install -m 0644 "$repo_dir/hooks/telegram-idea-capture/HOOK.yaml" \
