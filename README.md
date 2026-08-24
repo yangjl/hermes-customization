@@ -3,15 +3,23 @@
 Personal dashboard customizations for Hermes that live outside the Hermes
 source checkout and can be reinstalled after an update.
 
+New here? `AGENTS.md` is the rulebook: how to choose an extension surface, when
+a change needs a visual MVP first, and what must be verified before anything is
+called done. Read it before adding a customization.
+
 ## Contents
 
+- `AGENTS.md` — rules every agent follows when extending this repository.
 - `dashboard-themes/hermes-focus.yaml` — the recommended agent-workbench theme.
 - `dashboard-themes/light-lab.yaml` — the original VS Code-inspired light theme.
 - `skins/vscode-light-lab.yaml` — the shared CLI, TUI, and Desktop Light Lab skin.
 - `desktop-plugins/research-dashboard/plugin.js` — daily Research dashboard for Hermes Desktop.
+- `desktop-plugins/project-kanban/plugin.js` — Project Kanban pane (opt-in).
+- `plugins/project-kanban/` — scoped backend for the Project Kanban pane.
+- `sketches/` — disposable visual MVPs; approved before a UI surface is built.
 - `web-report/index.html` — content-rich Research portfolio report.
 - `docs/hermes-focus-design.md` — audit, design rationale, and validation plan.
-- `plugins/` — reserved for web-dashboard plugins.
+- `plugins/` — backend (web-dashboard) plugins.
 - `scripts/refresh-todo-vault.py` — weekly refresh for the Obsidian project vault.
 - `scripts/reapply-desktop-patch.sh` — restores the Desktop patch after a Hermes update.
 - `hooks/telegram-idea-capture/` — turns a Telegram message into an inbox card.
@@ -251,6 +259,41 @@ Review what you captured with:
 hermes kanban --board inbox list
 ```
 
+## Verification
+
+Both suites must pass before any change is considered done:
+
+```bash
+~/.hermes/hermes-agent/venv/bin/python -m unittest discover -s tests
+node --test tests/*.test.mjs
+```
+
+The Node glob matters — `node --test tests/` fails on the Python files.
+
+UI changes also need a visual check against the approved `sketches/` MVP; see
+`AGENTS.md`.
+
+## Project Kanban pane
+
+An opt-in Desktop pane over the native Kanban boards, with a review Inbox.
+Install it with the flag:
+
+```bash
+./install.sh --theme light-lab --enable-project-kanban
+```
+
+That enables the backend half and creates this machine's board. The **Desktop**
+half ships disabled — plugins under `~/.hermes/plugins/` are inventoried but
+inert until allowlisted, and that toggle lives in the app's local storage, not
+`config.yaml`, so the installer cannot set it. Turn it on once per machine:
+
+**Settings → Plugins → Project Kanban**, then click **Kanban** in the sidebar.
+
+The board is named after the machine: `Office Desktop` or `MacBook`. The
+Inbox board is created only on the Office Desktop, so the Inbox tab elsewhere
+reads "Inbox unavailable" — boards are SQLite and gateway-local, and the pane
+deliberately does not sync another machine's board.
+
 ## Set up another computer
 
 1. Install Hermes and configure that computer's credentials normally.
@@ -265,6 +308,8 @@ To bring the todo workflow along as well:
 7. Set `TODO_MACHINE` to a name for this computer and schedule the weekly refresh.
 8. Schedule the patch restore job so Hermes updates do not revert the Desktop
    customizations (see "Surviving a Hermes update").
+9. For the Kanban pane, rerun the installer with `--enable-project-kanban` and
+   toggle it on under **Settings → Plugins**.
 
 API keys, tokens, sessions, and machine-specific launchers are intentionally
 not stored in this repository.
