@@ -1,0 +1,9 @@
+name: project-kanban
+version: 1.0.0
+description: "Hermes Desktop project Kanban backed by native Hermes task state and Obsidian project metadata."
+author: J. Yang Lab
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows

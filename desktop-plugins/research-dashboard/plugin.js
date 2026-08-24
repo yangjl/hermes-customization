@@ -100,7 +100,7 @@ export default {
   name: 'Research Dashboard',
   register(ctx) {
     ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: '/research-dashboard' }, render: () => jsx(Dashboard, {}) })
-    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, data: { path: '/research-dashboard', label: 'Research', codicon: 'project' } })
+    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, order: 100, data: { path: '/research-dashboard', label: 'Research', codicon: 'project' } })
     ctx.register({ id: 'dashboard', area: 'panes', title: 'Research Dashboard', data: { placement: 'right', width: '420px' }, render: () => jsx(Dashboard, {}) })
     ctx.register({ id: 'status', area: 'statusBar.right', order: 118, render: () => jsx(StatusChip, {}) })
   }

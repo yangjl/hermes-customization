@@ -1,4 +1,4 @@
-"""Capture a Telegram message as an inbox card.
+"""Capture an explicit Telegram, Slack, or Email message as an inbox card.
 
 A random idea is worth writing down in the five seconds you have it, which
 means the capture path has to be shorter than a conversation. This hook writes
@@ -9,23 +9,20 @@ Capture-only by design. The card holds what you said, verbatim, and deciding
 what it means is a separate act you perform later against the board. A hook
 that tried to be clever here would turn a five-second note into a negotiation.
 
-Cards land in ``todo`` rather than ``triage``. Triage looks like the right
-column for an unsorted idea, but a board with ``kanban.auto_decompose`` on has
-a decomposer watching it, and the whole point of capture-only is that nothing
-rewrites your words between you typing them and you reading them back.
+Cards land in ``triage`` so they remain reviewable Inbox candidates. The hook
+does not assign a category or promote the message into active work.
 
 Scope is deliberately narrow:
 
-* Telegram only, because that is the surface you carry.
 * An allowlist, because a bot token is a public endpoint.
 * A prefix, so an ordinary conversation with the bot is not swallowed.
 
 Configuration, all optional except the allowlist:
 
-    TELEGRAM_CAPTURE_USERS   comma-separated Telegram user ids allowed to
-                             capture. Empty means nobody — capture is off.
-    TELEGRAM_CAPTURE_BOARD   Kanban board slug. Default: inbox
-    TELEGRAM_CAPTURE_PREFIX  comma-separated triggers. Default: idea:,todo:,note:
+    <PLATFORM>_CAPTURE_USERS comma-separated user ids or senders allowed to
+                             capture (TELEGRAM, SLACK, or EMAIL).
+    INBOX_CAPTURE_BOARD      Kanban board slug. Default: inbox
+    <PLATFORM>_CAPTURE_PREFIX comma-separated triggers. Default: idea:,todo:,note:
                              Set to ``*`` to capture every message.
 
 The board is created on first use.
@@ -33,27 +30,17 @@ The board is created on first use.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
 
 logger = logging.getLogger("hooks.telegram-idea-capture")
 
-BOARD = os.getenv("TELEGRAM_CAPTURE_BOARD", "inbox")
+BOARD = os.getenv("INBOX_CAPTURE_BOARD", os.getenv("TELEGRAM_CAPTURE_BOARD", "inbox"))
 DEFAULT_PREFIXES = "idea:,todo:,note:"
 TITLE_MAX = 70
-
-
-def _allowed_users() -> set[str]:
-    raw = os.getenv("TELEGRAM_CAPTURE_USERS", "")
-    return {u.strip() for u in raw.split(",") if u.strip()}
-
-
-def _prefixes() -> list[str]:
-    raw = os.getenv("TELEGRAM_CAPTURE_PREFIX", DEFAULT_PREFIXES).strip()
-    if raw == "*":
-        return ["*"]
-    return [p.strip().lower() for p in raw.split(",") if p.strip()]
 
 
 def _strip_prefix(message: str, prefixes: list[str]) -> str | None:
@@ -102,28 +89,40 @@ def _capture(text: str, context: dict) -> str | None:
     try:
         title, body = _split(text)
         detail = [body] if body else []
-        detail += ["", f"Captured from Telegram on {context.get('platform', 'telegram')}."]
+        platform = str(context.get("platform", "telegram")).lower()
+        detail += ["", f"Captured from {platform.title()}."]
         chat = context.get("chat_id")
         if chat:
             detail.append(f"Chat: {chat}")
+        metadata = json.dumps({
+            "source": platform,
+            "reason": f"Explicit {platform.title()} capture prefix",
+            "details": "\n".join(detail).strip(),
+        })
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
         return kanban_db.create_task(
-            conn, title=title, body="\n".join(detail).strip() or None,
-            created_by="telegram-capture", board=BOARD)
+            conn, title=title, body=metadata, triage=True,
+            idempotency_key=f"{platform}:{chat or 'direct'}:{digest}",
+            created_by=f"{platform}-capture", board=BOARD)
     finally:
         conn.close()
 
 
 async def handle(event_type: str, context: dict) -> None:
-    if context.get("platform") != "telegram":
+    platform = str(context.get("platform", "")).lower()
+    if platform not in {"telegram", "slack", "email"}:
         return
 
-    allowed = _allowed_users()
+    allowed_raw = os.getenv(f"{platform.upper()}_CAPTURE_USERS", "")
+    allowed = {user.strip() for user in allowed_raw.split(",") if user.strip()}
     if not allowed:
         return  # capture is off until someone is named
     if str(context.get("user_id", "")) not in allowed:
         return
 
-    text = _strip_prefix(context.get("message", "") or "", _prefixes())
+    prefix_raw = os.getenv(f"{platform.upper()}_CAPTURE_PREFIX", DEFAULT_PREFIXES).strip()
+    prefixes = ["*"] if prefix_raw == "*" else [item.strip().lower() for item in prefix_raw.split(",") if item.strip()]
+    text = _strip_prefix(context.get("message", "") or "", prefixes)
     if not text:
         return
 

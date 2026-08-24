@@ -1,4 +1,4 @@
 name: telegram-idea-capture
-description: Turn a Telegram message into an inbox card without waking the agent
+description: Turn an explicit Telegram, Slack, or Email message into an Inbox candidate without waking the agent
 events:
   - agent:start

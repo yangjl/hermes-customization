@@ -36,7 +36,7 @@ SCAN_ROOTS = {
     "Website": Path("~/Documents/website").expanduser(),
 }
 STATE = Path("~/.hermes/cache/todo-vault-state.json").expanduser()
-BOARD = os.environ.get("TODO_BOARD", "todos")
+BOARD = os.environ.get("TODO_INBOX_BOARD", "inbox")
 CARDS_ENABLED = os.environ.get("TODO_CARDS", "1") != "0"
 
 TODAY = datetime.date.today()
@@ -289,7 +289,7 @@ def create_card(repo: dict, note: Path) -> str | None:
     full = f"{repo['owner']}/{repo['name']}"
     pushed = repo["pushed_at"][:10]
     key = f"push:{full}:{pushed[:7]}"
-    body = "\n".join([
+    details = "\n".join([
         f"{full} was pushed on {pushed}.",
         "",
         f"GitHub: {repo['html_url']}",
@@ -298,11 +298,17 @@ def create_card(repo: dict, note: Path) -> str | None:
         "Raised because the project note is marked active. Decide what the push",
         "means for your next action, then complete or archive this card.",
     ])
+    body = json.dumps({
+        "source": "github",
+        "reason": "Repository push detected for an active project",
+        "details": details,
+    })
     try:
         result = subprocess.run(
             ["hermes", "kanban", "--board", BOARD, "create",
              f"{full} — pushed {pushed}", "--body", body,
-             "--idempotency-key", key, "--created-by", "vault-refresh", "--json"],
+             "--triage", "--idempotency-key", key,
+             "--created-by", "vault-refresh", "--json"],
             capture_output=True, text=True, timeout=60)
         if result.returncode != 0:
             return None
@@ -358,20 +364,22 @@ def clear_generated(folder: Path) -> None:
             note.unlink()
 
 
-def carry_over(path: Path) -> tuple[str, str]:
-    """Rescue the two things a human edits on a generated note.
+def carry_over(path: Path) -> tuple[str, str, str]:
+    """Rescue the human-edited status, category, and Kanban links.
 
     A refresh rewrites inventory facts, but the review verdict and the Kanban
     card links are decisions — losing them on every run would make the notes
     useless as a place to record anything. Returns the previous
-    ``knowledge_status`` and the whole ``## Kanban tasks`` section.
+    ``knowledge_status``, ``project_category``, and the whole ``## Kanban tasks`` section.
     """
     if not path.exists():
-        return "unreviewed", ""
+        return "unreviewed", "", ""
     text = path.read_text(encoding="utf-8")
     status = re.search(r"^knowledge_status:\s*(\S+)\s*$", text, re.M)
+    category = re.search(r"^project_category:\s*(\S+)\s*$", text, re.M)
     tasks = re.search(r"\n(## Kanban tasks\n.*?)(?=\n## |\Z)", text, re.S)
     return (status.group(1) if status else "unreviewed",
+            category.group(1) if category else "",
             tasks.group(1).rstrip() if tasks else "")
 
 
@@ -384,13 +392,18 @@ def github_notes(repos: dict[str, dict], local_by_repo: dict[str, tuple[str, str
         full = f"{repo['owner']}/{repo['name']}"
         clone = local_by_repo.get(full.lower())
         note = folder / f"{slug(full)}.md"
-        status, tasks = carried.get(note.name, ("unreviewed", ""))
+        status, category, tasks = carried.get(note.name, ("unreviewed", "", ""))
         lines = [
             "---", f'github_repo: "{full}"', f"owner: {repo['owner']}",
             f"private: {str(repo['private']).lower()}", f"fork: {str(repo['fork']).lower()}",
             f'pushed_at: "{repo["pushed_at"][:10]}"', f'created_at: "{repo["created_at"][:10]}"',
             f'language: "{quote(repo["language"])}"', f"size_kb: {repo['size_kb']}",
-            f"knowledge_status: {status}", "kanban_board: todos",
+            f"knowledge_status: {status}",
+        ]
+        if category:
+            lines.append(f"project_category: {category}")
+        lines += [
+            "kanban_board: todos",
             f"cloned_locally: {str(bool(clone)).lower()}", "source: github-api",
             f'updated: "{TODAY.isoformat()}"', "---", "", f"# {full}", "", "## Repository", "",
             f"- URL: {repo['html_url']}",
@@ -424,13 +437,18 @@ def local_notes(kind: str, rows: list[dict], root: Path) -> None:
     for row in rows:
         is_git = row["version_control"] == "git"
         filename = f"{slug(row['relative_path'])}.md"
-        status, tasks = carried.get(filename, ("unreviewed", ""))
+        status, category, tasks = carried.get(filename, ("unreviewed", "", ""))
         lines = [
             "---", f'project: "{quote(row["name"])}"',
             f'relative_path: "{quote(row["relative_path"])}"',
             f'local_path: "{quote(row["path"])}"', f'source_root: "{root}"',
             f"machine: {MACHINE}", f"version_control: {'git' if is_git else 'none'}",
-            f"knowledge_status: {status}", "kanban_board: todos",
+            f"knowledge_status: {status}",
+        ]
+        if category:
+            lines.append(f"project_category: {category}")
+        lines += [
+            "kanban_board: todos",
             f'activity_date: "{row["activity_date"]}"', f'updated: "{TODAY.isoformat()}"',
         ]
         if is_git:

@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hermes Projects — visual MVP</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f7;
+      --surface: #ffffff;
+      --sidebar: #f2f2f2;
+      --panel: #f4f4f4;
+      --text: #252525;
+      --muted: #5f5f5f;
+      --quiet: #767676;
+      --border: #d4d4d4;
+      --border-strong: #c5c5c5;
+      --accent: #007acc;
+      --accent-soft: #e5f3ff;
+      --success: #16825d;
+      --warning: #9a5d00;
+      --danger: #c72e2e;
+      --shadow: 0 12px 32px rgba(0, 0, 0, .14);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .icon { display: block; width: 16px; height: 16px; stroke-width: 1.8; }
+    .app { display: grid; grid-template-columns: 52px minmax(0, 1fr); height: 100%; }
+    .sidebar {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+      background: var(--sidebar);
+    }
+    .brand {
+      display: flex;
+      height: 52px;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 1px solid var(--border);
+      padding: 0;
+      font-weight: 650;
+    }
+    .brand-mark {
+      display: grid;
+      width: 25px;
+      height: 25px;
+      place-items: center;
+      border-radius: 6px;
+      background: var(--accent);
+      color: white;
+      font-size: 12px;
+      letter-spacing: -.03em;
+    }
+    .brand span:last-child, .nav-label, .nav-item span:not(.nav-icon), .sidebar-note { display: none; }
+    .nav { padding: 10px 6px; }
+    .nav-label { padding: 8px 8px 5px; color: var(--quiet); font-size: 11px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
+    .nav-item {
+      display: flex;
+      width: 100%;
+      min-height: 36px;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      padding: 0;
+      text-align: left;
+    }
+    .nav-item:hover { background: #e8e8e8; }
+    .nav-item.active { background: #dcecf8; color: #005a9e; font-weight: 600; }
+    .nav-icon { width: auto; color: var(--muted); text-align: center; }
+    .nav-item.active .nav-icon { color: var(--accent); }
+    .sidebar-note {
+      margin-top: auto;
+      border-top: 1px solid var(--border);
+      padding: 12px 14px;
+      color: var(--quiet);
+      font-size: 11px;
+    }
+
+    main { display: flex; min-width: 0; flex-direction: column; overflow: hidden; background: var(--surface); }
+    .topbar {
+      display: flex;
+      min-height: 52px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      padding: 8px 18px;
+    }
+    .title-row { display: flex; min-width: 0; align-items: baseline; gap: 10px; }
+    h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+    .subtitle { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .sample-pill {
+      flex: none;
+      border: 1px solid #a8cce8;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      padding: 4px 9px;
+      color: #005a9e;
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .context-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: stretch;
+      gap: 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      padding: 10px 18px;
+    }
+    .machine-switch { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 6px; }
+    .machine-button {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 9px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 7px 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .machine-button:hover { border-color: var(--border-strong); background: #fbfbfb; }
+    .machine-button.active { border-color: var(--accent); box-shadow: inset 0 -2px var(--accent); }
+    .machine-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--success); }
+    .machine-dot.away { background: #8a8a8a; }
+    .machine-dot.inbox { background: var(--warning); }
+    .machine-icon { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 6px; background: var(--panel); color: var(--muted); }
+    .machine-button.active .machine-icon { background: var(--accent-soft); color: var(--accent); }
+    .machine-copy { display: grid; min-width: 0; }
+    .machine-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .machine-copy span { color: var(--quiet); font-size: 10px; }
+    .context-help { display: grid; width: 30px; height: 30px; align-self: center; place-items: center; color: var(--quiet); }
+
+    .role-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 6px 18px;
+    }
+    .role-icon {
+      display: grid;
+      width: 30px;
+      height: 30px;
+      place-items: center;
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+    .role-icon.role-kanban { border-color: #91bddd; background: var(--accent-soft); color: #005a9e; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding: 9px 18px;
+    }
+    .filters { display: flex; min-width: 0; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+    .filters::-webkit-scrollbar { display: none; }
+    .filter {
+      flex: none;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      background: transparent;
+      padding: 5px 9px;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .filter:hover { background: var(--panel); color: var(--text); }
+    .filter.active { border-color: #9dc5e2; background: var(--accent-soft); color: #005a9e; font-weight: 650; }
+    .filter-count { margin-left: 3px; color: var(--quiet); font-size: 9px; font-weight: 600; }
+    .filter.active .filter-count { color: #2676ad; }
+    .primary {
+      flex: none;
+      min-height: 32px;
+      border: 1px solid #006ab2;
+      border-radius: 6px;
+      background: var(--accent);
+      padding: 0 12px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .primary:hover { background: #006fba; }
+    .icon-only { display: grid; width: 32px; padding: 0; place-items: center; }
+
+    .lane-tabs { display: none; gap: 5px; border-bottom: 1px solid var(--border); padding: 8px 12px; overflow-x: auto; background: var(--surface); }
+    .lane-tab { flex: 1; min-width: max-content; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 6px 8px; color: var(--muted); font-size: 10px; cursor: pointer; }
+    .lane-tab.active { border-color: #9dc5e2; background: var(--accent-soft); color: #005a9e; font-weight: 650; }
+
+    .board-wrap { min-height: 0; flex: 1; overflow: auto; background: var(--bg); padding: 14px 18px 18px; }
+    .board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .column {
+      display: flex;
+      min-height: 300px;
+      flex-direction: column;
+      align-self: start;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .column-head {
+      display: flex;
+      min-height: 40px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding: 0 10px;
+    }
+    .column-title { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #7d7d7d; }
+    [data-status="next"] .status-dot { background: var(--accent); }
+    [data-status="doing"] .status-dot { background: var(--success); }
+    [data-status="waiting"] .status-dot { background: var(--warning); }
+    [data-status="review"] .status-dot { background: #7a55a3; }
+    [data-status="captured"] .status-dot { background: #7d7d7d; }
+    [data-status="suggested"] .status-dot { background: var(--accent); }
+    [data-status="needs-input"] .status-dot { background: var(--warning); }
+    [data-status="routed"] .status-dot { background: var(--success); }
+    .count { min-width: 20px; border-radius: 999px; background: #e4e4e4; padding: 1px 6px; color: var(--muted); font-size: 10px; text-align: center; }
+    .cards { display: flex; flex-direction: column; gap: 7px; padding: 8px; }
+    .card {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 10px;
+      text-align: left;
+      box-shadow: 0 1px 1px rgba(0, 0, 0, .03);
+      cursor: pointer;
+    }
+    .card:hover { border-color: #a9bfd0; box-shadow: 0 2px 7px rgba(0, 0, 0, .07); }
+    .card-title { margin: 7px 0 8px; font-size: 12px; font-weight: 650; line-height: 1.35; }
+    .card-top, .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    .category {
+      max-width: 150px;
+      overflow: hidden;
+      border-radius: 4px;
+      background: #ededed;
+      padding: 2px 6px;
+      color: #4f4f4f;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .035em;
+      text-overflow: ellipsis;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .category.main-research { background: #e5f3ff; color: #005a9e; }
+    .category.student-projects { background: #e8f3ec; color: #286243; }
+    .category.systems-admin { background: #ececf3; color: #4e4e6e; }
+    .category.unsorted { background: #eeeeee; color: #666666; }
+    .priority { color: var(--danger); font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .meta { color: var(--quiet); font-size: 10px; }
+    .sources { display: flex; gap: 4px; }
+    .source {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0;
+      color: var(--muted);
+    }
+    .source .icon { width: 12px; height: 12px; }
+    .source.capture { border-color: #d2b27c; background: #fff7e8; color: #765018; }
+    .empty-column { padding: 22px 10px; color: var(--quiet); font-size: 11px; text-align: center; }
+
+    .board-footer {
+      display: flex;
+      min-height: 28px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+      background: var(--panel);
+      padding: 5px 12px;
+      color: var(--quiet);
+      font-size: 10px;
+    }
+    .board-footer strong { color: var(--muted); }
+
+    dialog {
+      width: min(520px, calc(100vw - 28px));
+      max-height: calc(100vh - 40px);
+      border: 1px solid var(--border-strong);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--text);
+      box-shadow: var(--shadow);
+      padding: 0;
+    }
+    dialog::backdrop { background: rgba(30, 30, 30, .28); }
+    .dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 13px 15px; }
+    .dialog-head h2 { margin: 0; font-size: 15px; }
+    .icon-button { width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; cursor: pointer; }
+    .icon-button:hover { background: var(--panel); }
+    .dialog-body { padding: 15px; }
+    .dialog-body p { margin: 0 0 12px; color: var(--muted); }
+    .detail-grid { display: grid; grid-template-columns: 110px minmax(0, 1fr); border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+    .detail-grid > div { padding: 9px 10px; border-bottom: 1px solid var(--border); }
+    .detail-grid > div:nth-last-child(-n+2) { border-bottom: 0; }
+    .detail-label { background: var(--panel); color: var(--quiet); font-size: 11px; }
+    .detail-value { font-size: 12px; }
+    .tool-rule { margin-top: 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 9px 10px; color: #224d6d; font-size: 11px; }
+    .form-row { display: grid; gap: 5px; margin-bottom: 12px; }
+    #suggestionEditor { margin-top: 12px; }
+    .form-row label { font-size: 11px; font-weight: 650; }
+    .form-row input, .form-row select { width: 100%; min-height: 36px; border: 1px solid var(--border-strong); border-radius: 6px; background: white; padding: 6px 8px; color: var(--text); }
+    .dialog-actions { display: flex; justify-content: flex-end; gap: 7px; border-top: 1px solid var(--border); padding: 11px 15px; }
+    .secondary { min-height: 32px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); padding: 0 11px; cursor: pointer; }
+    .secondary:hover { background: var(--panel); }
+    .toast {
+      position: fixed;
+      z-index: 20;
+      right: 16px;
+      bottom: 42px;
+      max-width: 340px;
+      translate: 0 12px;
+      border: 1px solid var(--border-strong);
+      border-radius: 7px;
+      background: #252525;
+      padding: 9px 12px;
+      color: white;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .16s ease, translate .16s ease;
+      font-size: 11px;
+    }
+    .toast.show { translate: 0; opacity: 1; }
+
+    @media (max-width: 900px) {
+      .context-help { display: none; }
+      .context-row { grid-template-columns: 1fr; }
+      .board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 680px) {
+      .app { display: block; }
+      .sidebar { display: none; }
+      .topbar, .context-row, .toolbar { padding-inline: 12px; }
+      .subtitle { display: none; }
+      .machine-switch { grid-template-columns: 1fr; }
+      .role-strip { padding-inline: 12px; }
+      .toolbar { align-items: flex-start; }
+      .primary { padding-inline: 9px; }
+      .lane-tabs { display: flex; }
+      .board-wrap { padding: 10px 12px 14px; }
+      .board { grid-template-columns: 1fr; }
+      .column { display: none; width: auto; min-width: 0; }
+      .column.mobile-active { display: flex; }
+      .board-footer span:last-child { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-monitor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2" fill="none" stroke="currentColor"/><path d="M8 21h8m-4-4v4" fill="none" stroke="currentColor" stroke-linecap="round"/></symbol>
+    <symbol id="icon-laptop" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="11" rx="1.5" fill="none" stroke="currentColor"/><path d="M3 19h18l-2-4H5l-2 4Z" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-inbox" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5Zm0 9h5l1.5 2h3L15 14h5" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-kanban" viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1" fill="none" stroke="currentColor"/><rect x="10" y="4" width="5" height="10" rx="1" fill="none" stroke="currentColor"/><rect x="17" y="4" width="4" height="7" rx="1" fill="none" stroke="currentColor"/></symbol>
+    <symbol id="icon-book" viewBox="0 0 24 24"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2H11v17H7.5A3.5 3.5 0 0 0 4 22V5.5Zm16 0A3.5 3.5 0 0 0 16.5 2H13v17h3.5A3.5 3.5 0 0 1 20 22V5.5Z" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" fill="none" stroke="currentColor"/><circle cx="18" cy="7" r="2" fill="none" stroke="currentColor"/><circle cx="6" cy="19" r="2" fill="none" stroke="currentColor"/><path d="M6 7v10m2-7h5a5 5 0 0 0 5-5" fill="none" stroke="currentColor" stroke-linecap="round"/></symbol>
+    <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor"/><path d="M12 11v6m0-10h.01" fill="none" stroke="currentColor" stroke-linecap="round"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-linecap="round"/></symbol>
+    <symbol id="icon-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor"/><path d="m4 7 8 6 8-6" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-message" viewBox="0 0 24 24"><path d="M5 5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 3v-4a2 2 0 0 1-1-2V7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+    <symbol id="icon-send" viewBox="0 0 24 24"><path d="m3 11 18-8-7 18-3-7-8-3Zm8 3 4-4" fill="none" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="icon-pencil" viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10a2.1 2.1 0 0 0-3-3l-10 10L4 20Zm10-12 3 3" fill="none" stroke="currentColor" stroke-linejoin="round"/></symbol>
+  </svg>
+  <div class="app">
+    <aside class="sidebar" aria-label="Hermes navigation">
+      <div class="brand"><span class="brand-mark">H</span><span>Hermes</span></div>
+      <nav class="nav">
+        <div class="nav-label">Workspace</div>
+        <button class="nav-item"><span class="nav-icon">⌁</span><span>Chat</span></button>
+        <button class="nav-item"><span class="nav-icon">☷</span><span>Sessions</span></button>
+        <button class="nav-item active" aria-current="page"><span class="nav-icon">▦</span><span>Projects</span></button>
+        <button class="nav-item"><span class="nav-icon">◇</span><span>Automations</span></button>
+        <div class="nav-label">System</div>
+        <button class="nav-item"><span class="nav-icon">⚙</span><span>Manage</span></button>
+      </nav>
+      <div class="sidebar-note">Visual MVP · no live data</div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="title-row">
+          <h1>Projects</h1>
+          <span class="subtitle"><strong id="activeTotal">18 active projects</strong></span>
+        </div>
+        <span class="sample-pill">Sample data only</span>
+      </header>
+
+      <section class="context-row" aria-label="Local Kanban boards">
+        <div class="machine-switch" role="tablist" aria-label="Machine board">
+          <button class="machine-button active" data-machine="office" role="tab" aria-selected="true">
+            <span class="machine-icon"><svg class="icon" aria-hidden="true"><use href="#icon-monitor"/></svg></span>
+            <span class="machine-copy"><strong>Office Desktop</strong><span><b data-count="office">9</b> · local</span></span>
+          </button>
+          <button class="machine-button" data-machine="macbook" role="tab" aria-selected="false">
+            <span class="machine-icon"><svg class="icon" aria-hidden="true"><use href="#icon-laptop"/></svg></span>
+            <span class="machine-copy"><strong>MacBook</strong><span><b data-count="macbook">3</b> · local</span></span>
+          </button>
+          <button class="machine-button" data-machine="inbox" role="tab" aria-selected="false">
+            <span class="machine-icon"><svg class="icon" aria-hidden="true"><use href="#icon-inbox"/></svg></span>
+            <span class="machine-copy"><strong>Inbox</strong><span><b data-count="inbox">6</b> · Office</span></span>
+          </button>
+        </div>
+        <span class="context-help" role="img" tabindex="0" aria-label="Machine boards stay local. Inbox is live from the Office gateway and unavailable when that gateway is offline." title="Machine boards stay local. Inbox requires the Office gateway."><svg class="icon" aria-hidden="true"><use href="#icon-info"/></svg></span>
+      </section>
+
+      <section class="role-strip" aria-label="Tool roles">
+        <span class="role-icon role-kanban" role="img" tabindex="0" aria-label="Kanban: next actions and workflow" title="Kanban · act"><svg class="icon" aria-hidden="true"><use href="#icon-kanban"/></svg></span>
+        <span class="role-icon" role="img" tabindex="0" aria-label="Obsidian: project knowledge and decisions" title="Obsidian · know"><svg class="icon" aria-hidden="true"><use href="#icon-book"/></svg></span>
+        <span class="role-icon" role="img" tabindex="0" aria-label="GitHub: code and repository activity" title="GitHub · build"><svg class="icon" aria-hidden="true"><use href="#icon-branch"/></svg></span>
+      </section>
+
+      <section class="toolbar" aria-label="Board controls">
+        <div class="filters" role="tablist" aria-label="Project category">
+          <button class="filter active" data-category="all" role="tab" aria-selected="true">All <span class="filter-count">18</span></button>
+          <button class="filter" data-category="main-research" role="tab" aria-selected="false">Main research <span class="filter-count">8</span></button>
+          <button class="filter" data-category="student-projects" role="tab" aria-selected="false">Student projects <span class="filter-count">6</span></button>
+          <button class="filter" data-category="systems-admin" role="tab" aria-selected="false">Systems / admin <span class="filter-count">4</span></button>
+        </div>
+        <button class="primary icon-only" id="addTask" aria-label="Add next action" title="Add next action"><svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg></button>
+      </section>
+
+      <div class="lane-tabs" id="laneTabs" role="tablist" aria-label="Kanban lane"></div>
+
+      <div class="board-wrap">
+        <div class="board" id="board" aria-live="polite"></div>
+      </div>
+
+      <footer class="board-footer">
+        <span><strong id="boardName">Office Desktop</strong><span id="boardContext"> · local board · sample only</span></span>
+      </footer>
+    </main>
+  </div>
+
+  <dialog id="detailDialog" aria-labelledby="detailTitle">
+    <div class="dialog-head">
+      <h2 id="detailTitle">Task details</h2>
+      <button class="icon-button" data-close="detailDialog" aria-label="Close">×</button>
+    </div>
+    <div class="dialog-body">
+      <p id="detailSummary"></p>
+      <div class="detail-grid" id="detailGrid"></div>
+      <div class="form-row" id="suggestionEditor" hidden>
+        <label for="suggestionText">Edit suggested action</label>
+        <input id="suggestionText" autocomplete="off">
+      </div>
+      <div class="tool-rule" id="toolRule"></div>
+    </div>
+    <div class="dialog-actions">
+      <button class="secondary" id="dismissCapture" hidden>Dismiss capture</button>
+      <button class="primary" id="acceptCapture" hidden>Accept to Office</button>
+      <button class="secondary" id="detailClose" data-close="detailDialog">Close</button>
+    </div>
+  </dialog>
+
+  <dialog id="addDialog" aria-labelledby="addTitle">
+    <form id="addForm" method="dialog">
+      <div class="dialog-head">
+        <h2 id="addTitle">Add a next action</h2>
+        <button class="icon-button" type="button" data-close="addDialog" aria-label="Close">×</button>
+      </div>
+      <div class="dialog-body">
+        <p>This changes the on-screen sample only. Nothing is written to Hermes, Obsidian, or Kanban.</p>
+        <div class="form-row">
+          <label for="taskTitle">Next action</label>
+          <input id="taskTitle" name="title" autocomplete="off" required placeholder="Describe one concrete action">
+        </div>
+        <div class="form-row">
+          <label for="taskCategory">Category</label>
+          <select id="taskCategory" name="category">
+            <option value="main-research">Main research</option>
+            <option value="student-projects">Student projects</option>
+            <option value="systems-admin">Systems / admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="secondary" type="button" data-close="addDialog">Cancel</button>
+        <button class="primary" type="submit">Add to sample</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const categories = {
+      'main-research': 'Main research',
+      'student-projects': 'Student projects',
+      'systems-admin': 'Systems / admin',
+      'unsorted': 'Unsorted'
+    }
+
+    const statuses = [
+      ['next', 'Next', 'ready'],
+      ['doing', 'Doing', 'running'],
+      ['waiting', 'Waiting', 'blocked'],
+      ['review', 'Review', 'review']
+    ]
+
+    const inboxStatuses = [
+      ['captured', 'Captured', 'raw'],
+      ['suggested', 'Suggested', 'AI draft'],
+      ['needs-input', 'Needs input', 'human gate'],
+      ['routed', 'Routed', 'approved']
+    ]
+
+    const boards = {
+      office: [
+        { id: 1, title: 'Decide greenhouse replication plan', category: 'main-research', status: 'next', due: 'Today', priority: 'Decision', obsidian: 'Research / Heat tolerance', github: '' },
+        { id: 2, title: 'Review Maya’s methods outline', category: 'student-projects', status: 'next', due: 'Today', obsidian: 'Students / Maya / Methods', github: '' },
+        { id: 5, title: 'Review active-repository push alert', category: 'systems-admin', status: 'next', due: 'New signal', priority: 'Git activity', obsidian: 'Systems / Active repos', github: 'sample-org/lab-ops' },
+        { id: 6, title: 'Freeze multi-environment GWAS dataset', category: 'main-research', status: 'doing', due: 'Due Aug 28', obsidian: 'Research / Dataset freeze', github: 'sample-lab/maize-gwas' },
+        { id: 7, title: 'Clean phenotype import branch', category: 'student-projects', status: 'doing', due: '2 files changed', obsidian: 'Students / Leo / Import', github: 'sample-lab/phenotype-tools' },
+        { id: 8, title: 'Wait for sequencing quote', category: 'main-research', status: 'waiting', due: 'Vendor · 3 days', obsidian: 'Research / Sequencing', github: '' },
+        { id: 9, title: 'Update lab backup recovery checklist', category: 'systems-admin', status: 'waiting', due: 'Waiting on IT', obsidian: 'Systems / Recovery', github: 'sample-lab/lab-ops' },
+        { id: 10, title: 'Approve genotype QC figure set', category: 'main-research', status: 'review', due: 'Due tomorrow', obsidian: 'Research / QC decisions', github: 'sample-lab/maize-gwas' },
+        { id: 11, title: 'Review student poster draft', category: 'student-projects', status: 'review', due: 'Friday', obsidian: 'Students / Alex / Poster', github: '' }
+      ],
+      macbook: [
+        { id: 101, title: 'Outline maize genetics seminar', category: 'main-research', status: 'next', due: 'Travel block', obsidian: 'Research / Seminar', github: '' },
+        { id: 104, title: 'Check Leo’s figure captions', category: 'student-projects', status: 'doing', due: 'Offline copy', obsidian: 'Students / Leo / Figures', github: '' },
+        { id: 105, title: 'Rebase travel-notes branch', category: 'systems-admin', status: 'waiting', due: 'Needs network', obsidian: 'Systems / Travel setup', github: 'sample-user/travel-notes' }
+      ],
+      inbox: [
+        { id: 201, title: 'Please review the draft figures before Friday', category: 'student-projects', status: 'suggested', due: 'Today', source: 'Email', suggestion: 'Review draft figures and return comments by Friday', destination: 'Office Desktop' },
+        { id: 202, title: 'todo: compare drought GWAS environment models', category: 'main-research', status: 'captured', due: '18m', source: 'Telegram', suggestion: 'Compare drought GWAS environment models', destination: 'Office Desktop' },
+        { id: 203, title: 'Can you check whether last night’s backup completed?', category: 'systems-admin', status: 'needs-input', due: '42m', source: 'Slack', suggestion: 'Check the latest backup run and report any failure', destination: 'Office Desktop' },
+        { id: 204, title: 'Order adapters for the field laptops', category: 'systems-admin', status: 'suggested', due: 'Today', source: 'Manual', suggestion: 'Confirm adapter models and place the order', destination: 'Office Desktop' },
+        { id: 205, title: 'Prepare discussion points for a student committee meeting', category: 'student-projects', status: 'captured', due: '2h', source: 'Email', suggestion: 'Draft committee-meeting discussion points', destination: 'Office Desktop' },
+        { id: 206, title: 'Repository push may change the next analysis step', category: 'main-research', status: 'needs-input', due: '3h', source: 'GitHub', suggestion: 'Review the push and decide whether a new action is needed', destination: 'Office Desktop' }
+      ]
+    }
+
+    let machine = 'office'
+    let category = 'all'
+    let lane = 'next'
+    let nextId = 1000
+    let selectedTaskId = null
+
+    const board = document.querySelector('#board')
+    const boardName = document.querySelector('#boardName')
+    const laneTabs = document.querySelector('#laneTabs')
+    const detailDialog = document.querySelector('#detailDialog')
+    const addDialog = document.querySelector('#addDialog')
+    const toast = document.querySelector('#toast')
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
+    }
+
+    function iconBadge(icon, label, capture = false) {
+      return `<span class="source ${capture ? 'capture' : ''}" role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"><svg class="icon" aria-hidden="true"><use href="#icon-${icon}"/></svg></span>`
+    }
+
+    function sourceBadges(item) {
+      const inboxIcons = { Email: 'mail', Slack: 'message', Telegram: 'send', Manual: 'pencil', GitHub: 'branch' }
+      if (machine === 'inbox') return iconBadge(inboxIcons[item.source] || 'inbox', item.source, true) + iconBadge('kanban', 'Kanban suggestion')
+      const badges = [iconBadge('kanban', 'Kanban')]
+      if (item.obsidian) badges.push(iconBadge('book', 'Obsidian'))
+      if (item.github) badges.push(iconBadge('branch', 'GitHub'))
+      return badges.join('')
+    }
+
+    function render() {
+      const items = boards[machine].filter(item => category === 'all' || item.category === category)
+      const lanes = machine === 'inbox' ? inboxStatuses : statuses
+      if (!lanes.some(([status]) => status === lane)) lane = lanes[0][0]
+      laneTabs.innerHTML = lanes.map(([status, label]) => {
+        const count = items.filter(item => item.status === status).length
+        return `<button class="lane-tab ${status === lane ? 'active' : ''}" data-lane="${status}" role="tab" aria-selected="${status === lane}">${label} · ${count}</button>`
+      }).join('')
+      board.innerHTML = lanes.map(([status, label]) => {
+        const cards = items.filter(item => item.status === status)
+        return `
+          <section class="column ${status === lane ? 'mobile-active' : ''}" data-status="${status}" aria-label="${label}">
+            <div class="column-head">
+              <div class="column-title"><span class="status-dot"></span>${label}</div>
+              <span class="count">${cards.length}</span>
+            </div>
+            <div class="cards">
+              ${cards.length ? cards.map(item => `
+                <button class="card" data-task="${item.id}">
+                  <span class="card-top">
+                    <span class="category ${item.category || 'unsorted'}">${categories[item.category] || 'Unsorted'}</span>
+                    ${item.priority ? `<span class="priority">${escapeHtml(item.priority)}</span>` : ''}
+                  </span>
+                  <span class="card-title">${escapeHtml(item.title)}</span>
+                  <span class="card-foot">
+                    <span class="meta">${escapeHtml(item.due)}</span>
+                    <span class="sources" aria-label="Linked tools">${sourceBadges(item)}</span>
+                  </span>
+                </button>
+              `).join('') : '<div class="empty-column">No sample actions here</div>'}
+            </div>
+          </section>
+        `
+      }).join('')
+      const names = { office: 'Office Desktop', macbook: 'MacBook', inbox: 'Inbox' }
+      boardName.textContent = names[machine]
+      document.querySelector('#boardContext').textContent = machine === 'inbox' ? ' · Office · sample' : ' · local · sample'
+      const addLabel = machine === 'inbox' ? 'Quick capture' : 'Add next action'
+      document.querySelector('#addTask').setAttribute('aria-label', addLabel)
+      document.querySelector('#addTask').title = addLabel
+      document.querySelector('#addTitle').textContent = machine === 'inbox' ? 'Quick capture' : 'Add a next action'
+      document.querySelector('label[for="taskTitle"]').textContent = machine === 'inbox' ? 'Short todo' : 'Next action'
+      document.querySelectorAll('[data-count]').forEach(count => {
+        const items = boards[count.dataset.count]
+        count.textContent = count.dataset.count === 'inbox' ? items.filter(item => item.status !== 'routed').length : items.length
+      })
+    }
+
+    function showTask(item) {
+      selectedTaskId = item.id
+      document.querySelector('#detailTitle').textContent = item.title
+      const isInbox = machine === 'inbox'
+      document.querySelector('#detailSummary').textContent = isInbox
+        ? 'This capture stays in Inbox until you accept, edit, or dismiss the suggested next action.'
+        : 'This card stays intentionally small: one concrete action plus links to the systems that own deeper context.'
+      const rows = isInbox ? [
+        ['Source', item.source],
+        ['Suggested category', categories[item.category] || 'Unsorted'],
+        ['Suggested action', item.suggestion],
+        ['Destination', item.destination]
+      ] : [
+        ['Kanban', `${statuses.find(status => status[0] === item.status)[1]} · ${categories[item.category]}`],
+        ['Obsidian', item.obsidian || 'No knowledge note linked'],
+        ['GitHub', item.github || 'No repository linked'],
+        ['Local board', machine === 'office' ? 'Office Desktop' : 'MacBook']
+      ]
+      document.querySelector('#detailGrid').innerHTML = rows.map(([label, value]) => `<div class="detail-label">${escapeHtml(label)}</div><div class="detail-value">${escapeHtml(value)}</div>`).join('')
+      document.querySelector('#suggestionEditor').hidden = !isInbox
+      document.querySelector('#acceptCapture').hidden = !isInbox
+      document.querySelector('#dismissCapture').hidden = !isInbox
+      if (isInbox) document.querySelector('#suggestionText').value = item.suggestion
+      document.querySelector('#toolRule').textContent = isInbox
+        ? 'Smart boundary: Hermes may detect and suggest, but only an approved capture becomes an active next action.'
+        : 'Boundary: move the work in Kanban, record reasoning and decisions in Obsidian, and inspect or change code in GitHub. The dashboard links these systems; it does not copy them.'
+      detailDialog.showModal()
+    }
+
+    function showToast(message) {
+      toast.textContent = message
+      toast.classList.add('show')
+      clearTimeout(showToast.timer)
+      showToast.timer = setTimeout(() => toast.classList.remove('show'), 2400)
+    }
+
+    document.querySelectorAll('.machine-button').forEach(button => {
+      button.addEventListener('click', () => {
+        machine = button.dataset.machine
+        lane = machine === 'inbox' ? 'captured' : 'next'
+        document.querySelectorAll('.machine-button').forEach(item => {
+          const active = item === button
+          item.classList.toggle('active', active)
+          item.setAttribute('aria-selected', String(active))
+        })
+        render()
+        showToast(machine === 'inbox' ? 'Showing captures from the Office gateway.' : `Showing the ${button.querySelector('strong').textContent} sample board. No cross-machine sync.`)
+      })
+    })
+
+    document.querySelectorAll('.filter').forEach(button => {
+      button.addEventListener('click', () => {
+        category = button.dataset.category
+        document.querySelectorAll('.filter').forEach(item => {
+          const active = item === button
+          item.classList.toggle('active', active)
+          item.setAttribute('aria-selected', String(active))
+        })
+        render()
+      })
+    })
+
+    laneTabs.addEventListener('click', event => {
+      const button = event.target.closest('[data-lane]')
+      if (!button) return
+      lane = button.dataset.lane
+      render()
+    })
+
+    board.addEventListener('click', event => {
+      const card = event.target.closest('[data-task]')
+      if (!card) return
+      const item = boards[machine].find(task => task.id === Number(card.dataset.task))
+      if (item) showTask(item)
+    })
+
+    document.querySelector('#addTask').addEventListener('click', () => {
+      document.querySelector('#taskTitle').value = ''
+      addDialog.showModal()
+      requestAnimationFrame(() => document.querySelector('#taskTitle').focus())
+    })
+
+    document.querySelector('#addForm').addEventListener('submit', event => {
+      event.preventDefault()
+      const data = new FormData(event.currentTarget)
+      const title = String(data.get('title') || '').trim()
+      if (!title) return
+      boards[machine].unshift(machine === 'inbox'
+        ? { id: nextId++, title, category: data.get('category'), status: 'captured', due: 'Manual · just now', source: 'Manual', suggestion: title, destination: 'Office Desktop' }
+        : { id: nextId++, title, category: data.get('category'), status: 'next', due: 'Just added', obsidian: '', github: '' })
+      category = 'all'
+      document.querySelectorAll('.filter').forEach(item => {
+        const active = item.dataset.category === 'all'
+        item.classList.toggle('active', active)
+        item.setAttribute('aria-selected', String(active))
+      })
+      addDialog.close()
+      render()
+      showToast(machine === 'inbox' ? 'Captured in this sample Inbox only—nothing was saved.' : 'Added to this sample view only—nothing was saved.')
+    })
+
+    document.querySelector('#acceptCapture').addEventListener('click', () => {
+      const item = boards.inbox.find(task => task.id === selectedTaskId)
+      const suggestion = document.querySelector('#suggestionText').value.trim()
+      if (!item || !suggestion) return
+      item.suggestion = suggestion
+      item.status = 'routed'
+      item.due = 'Approved · just now'
+      boards.office.unshift({ id: nextId++, title: suggestion, category: item.category, status: 'next', due: 'From Inbox', priority: 'New', obsidian: '', github: '' })
+      detailDialog.close()
+      render()
+      showToast('Routed to Office Desktop in this sample only—nothing was saved.')
+    })
+
+    document.querySelector('#dismissCapture').addEventListener('click', () => {
+      const index = boards.inbox.findIndex(task => task.id === selectedTaskId)
+      if (index < 0) return
+      boards.inbox.splice(index, 1)
+      detailDialog.close()
+      render()
+      showToast('Dismissed from this sample Inbox only—nothing was saved.')
+    })
+
+    document.querySelectorAll('[data-close]').forEach(button => {
+      button.addEventListener('click', () => document.querySelector(`#${button.dataset.close}`).close())
+    })
+
+    render()
+  </script>
+</body>
+</html>

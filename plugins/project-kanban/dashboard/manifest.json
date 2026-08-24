@@ -1,0 +1,10 @@
+{
+  "name": "project-kanban",
+  "label": "Project Kanban",
+  "description": "Machine-local action board with an Office-hosted review Inbox.",
+  "icon": "Columns",
+  "version": "1.0.0",
+  "tab": { "hidden": true },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}
