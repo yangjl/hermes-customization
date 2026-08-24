@@ -36,7 +36,7 @@ SCAN_ROOTS = {
     "Website": Path("~/Documents/website").expanduser(),
 }
 STATE = Path("~/.hermes/cache/todo-vault-state.json").expanduser()
-BOARD = os.environ.get("TODO_INBOX_BOARD", "inbox")
+BOARD = os.environ.get("TODO_INBOX_BOARD") or os.environ.get("TODO_BOARD") or "inbox"
 CARDS_ENABLED = os.environ.get("TODO_CARDS", "1") != "0"
 
 TODAY = datetime.date.today()
@@ -302,12 +302,15 @@ def create_card(repo: dict, note: Path) -> str | None:
         "source": "github",
         "reason": "Repository push detected for an active project",
         "details": details,
+        "review_candidate": True,
+        "candidate_stage": "captured",
     })
     try:
         result = subprocess.run(
             ["hermes", "kanban", "--board", BOARD, "create",
              f"{full} — pushed {pushed}", "--body", body,
-             "--triage", "--idempotency-key", key,
+             "--initial-status", "blocked", "--max-retries", "0",
+             "--idempotency-key", key,
              "--created-by", "vault-refresh", "--json"],
             capture_output=True, text=True, timeout=60)
         if result.returncode != 0:

@@ -70,13 +70,13 @@ function TaskCard({ task, lane, mutate }) {
         className: 'mt-2 flex items-center justify-between gap-2',
         children: [
           jsx('span', { className: 'truncate text-[11px] text-(--ui-text-tertiary)', children: categories.find(item => item.id === task.category)?.label || 'Systems / admin' }),
-          jsxs('span', {
+          task.human_managed ? jsxs('span', {
             className: 'flex items-center',
             children: [
               index > 0 ? jsx(IconButton, { icon: 'chevron-left', label: `Move ${task.title} left`, disabled: mutate.isPending, onClick: () => move(lanes[index - 1].id) }) : null,
               index < lanes.length - 1 ? jsx(IconButton, { icon: 'chevron-right', label: `Move ${task.title} right`, disabled: mutate.isPending, onClick: () => move(lanes[index + 1].id) }) : null
             ]
-          })
+          }) : jsx('span', { className: 'text-[11px] text-(--ui-text-tertiary)', children: 'Native lifecycle · read only' })
         ]
       })
     ]
@@ -198,15 +198,28 @@ function ManualCapture({ mutate }) {
 
 function Inbox({ data, mutate }) {
   if (!data.available) {
-    return jsx(EmptyState, { title: 'Inbox unavailable', description: 'Connect to the Office Desktop gateway to review captured work.' })
+    return jsx(EmptyState, {
+      title: 'Inbox unavailable',
+      description: data.reason || 'Inbox boards are gateway-local; Project Kanban does not sync another machine’s board.'
+    })
   }
   const captured = data.stages.captured || []
+  const suggested = data.stages.suggested || []
+  const reviewable = [...captured, ...suggested]
   return jsxs('div', {
     className: 'mx-auto flex w-full max-w-3xl flex-col gap-2',
     children: [
       jsx(ManualCapture, { mutate }),
-      jsxs('div', { className: 'mb-1 flex items-center justify-between', children: [jsx('div', { className: 'text-sm text-(--ui-text-secondary)', children: 'Review each suggestion before it becomes active work.' }), jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: `${captured.length} captured` })] }),
-      captured.length ? captured.map(task => jsx(InboxCard, { task, mutate }, task.id)) : jsx(EmptyState, { title: 'Inbox clear', description: 'Email, Slack, Telegram, GitHub, and manual captures appear here.' })
+      jsxs('div', { className: 'mb-1 flex items-center justify-between', children: [jsx('div', { className: 'text-sm text-(--ui-text-secondary)', children: 'Review each candidate before it becomes human-managed work.' }), jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: `${reviewable.length} to review` })] }),
+      captured.length ? jsxs('section', { children: [
+        jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Captured' }),
+        jsx('div', { className: 'flex flex-col gap-2', children: captured.map(task => jsx(InboxCard, { task, mutate }, task.id)) })
+      ] }) : null,
+      suggested.length ? jsxs('section', { className: captured.length ? 'mt-2' : '', children: [
+        jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Legacy suggestions' }),
+        jsx('div', { className: 'flex flex-col gap-2', children: suggested.map(task => jsx(InboxCard, { task, mutate }, task.id)) })
+      ] }) : null,
+      reviewable.length ? null : jsx(EmptyState, { title: 'Inbox clear', description: 'Email, Slack, Telegram, GitHub, and manual captures appear here.' })
     ]
   })
 }
@@ -238,7 +251,7 @@ function Dashboard({ ctx }) {
             jsxs('div', { className: 'min-w-0', children: [jsxs('h1', { className: 'flex items-center gap-2 truncate text-lg font-medium', children: [jsx(Codicon, { name: data.machine.board === 'todos' ? 'device-desktop' : 'device-mobile' }), data.machine.name] }), jsx('div', { className: 'mt-0.5 text-xs text-(--ui-text-tertiary)', children: `${data.projects.total_active} active projects${data.projects.needs_category ? ` · ${data.projects.needs_category} need category` : ''}` })] }),
             jsxs('div', { className: 'flex items-center gap-1', children: [
               jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => setView('board'), 'aria-label': 'Show action board', children: jsx(Codicon, { name: 'layout' }) }),
-              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => setView('inbox'), 'aria-label': 'Show Inbox', children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'inbox' }), data.inbox.available ? jsx('span', { className: 'text-xs tabular-nums', children: data.inbox.stages.captured?.length || 0 }) : null] }) }),
+              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => setView('inbox'), 'aria-label': 'Show Inbox', children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'inbox' }), data.inbox.available ? jsx('span', { className: 'text-xs tabular-nums', children: (data.inbox.stages.captured?.length || 0) + (data.inbox.stages.suggested?.length || 0) }) : null] }) }),
               view === 'board' ? jsx(IconButton, { icon: 'add', label: 'Add next action', onClick: () => setAdding(value => !value) }) : null
             ] })
           ] }),
@@ -267,8 +280,9 @@ function Dashboard({ ctx }) {
 export default {
   id: ID,
   name: 'Project Kanban',
+  defaultEnabled: false,
   register(ctx) {
-    ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: '/kanban' }, render: () => jsx(Dashboard, { ctx }) })
-    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, order: 101, data: { path: '/kanban', label: 'Kanban', codicon: 'layout' } })
+    ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: '/project-kanban' }, render: () => jsx(Dashboard, { ctx }) })
+    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, order: 101, data: { path: '/project-kanban', label: 'Kanban', codicon: 'layout' } })
   }
 }

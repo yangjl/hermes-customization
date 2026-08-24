@@ -245,24 +245,59 @@ def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
     return task
 
 
-def _inbox_snapshot() -> dict[str, Any]:
-    if not kb.board_exists("inbox"):
-        return {"available": False, "stages": {}}
-    conn = kb.connect(board="inbox")
+def _read_inbox_tasks() -> list[kb.Task]:
+    conn = kb.connect(board=INBOX_BOARD)
     try:
-        tasks = kb.list_tasks(conn, include_archived=False)
+        return kb.list_tasks(conn, include_archived=False)
     finally:
         conn.close()
+
+
+def _inbox_unavailable(detail: str) -> dict[str, Any]:
+    return {
+        "available": False,
+        "stages": {},
+        "reason": (
+            f"Inbox is unavailable on this gateway-local board store ({detail}). "
+            "Project Kanban does not sync boards from another machine."
+        ),
+    }
+
+
+def _inbox_snapshot() -> dict[str, Any]:
+    try:
+        if not kb.board_exists(INBOX_BOARD):
+            return _inbox_unavailable("the Inbox board does not exist here")
+        tasks = _read_inbox_tasks()
+    except Exception as exc:
+        return _inbox_unavailable(type(exc).__name__)
     stages = {
-        "captured": [_task_view(task) for task in tasks if task.status == "triage"],
+        "captured": [
+            _task_view(task)
+            for task in tasks
+            if task.status == "triage"
+            or (
+                task.status == "blocked"
+                and _metadata(task.body).get("review_candidate") is True
+            )
+        ],
         "suggested": [_task_view(task) for task in tasks if task.status in {"todo", "ready"}],
         "accepted": [_task_view(task) for task in tasks if task.status == "done"],
     }
     return {"available": True, "stages": stages}
 
 
+def _require_local_board(board: str) -> str:
+    if board != LOCAL_BOARD:
+        raise HTTPException(status_code=403, detail="Project Kanban is authorized only for the local todos board")
+    if not kb.board_exists(LOCAL_BOARD):
+        raise HTTPException(status_code=404, detail="The local todos board is unavailable")
+    return LOCAL_BOARD
+
+
 @router.get("/snapshot")
-def snapshot(board: str = "todos") -> dict[str, Any]:
+def snapshot(board: str = LOCAL_BOARD) -> dict[str, Any]:
+    board = _require_local_board(board)
     metadata = kb.read_board_metadata(board)
     return {
         "machine": {"board": metadata["slug"], "name": metadata["name"]},
@@ -273,23 +308,24 @@ def snapshot(board: str = "todos") -> dict[str, Any]:
 
 
 @router.post("/tasks", status_code=201)
-def create_task(payload: TaskCreate, board: str = "todos") -> dict[str, Any]:
+def create_task(payload: TaskCreate, board: str = LOCAL_BOARD) -> dict[str, Any]:
+    board = _require_local_board(board)
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
-    if not kb.board_exists(board):
-        raise HTTPException(status_code=404, detail=f"Board {board!r} is unavailable")
     conn = kb.connect(board=board)
     try:
         task_id = kb.create_task(
             conn,
             title=title,
-            body=payload.body.strip() or None,
+            body=_human_task_body(payload.body.strip(), payload.lane),
             tenant=payload.category,
             created_by="project-kanban",
+            initial_status="blocked",
             board=board,
         )
-        task = _set_lane(conn, task_id, payload.lane) if payload.lane != "next" else kb.get_task(conn, task_id)
+        _park_for_human(conn, task_id, reason="Human-managed Project Kanban card")
+        task = kb.get_task(conn, task_id)
         if task is None:
             raise HTTPException(status_code=500, detail="Task creation failed")
         return _task_view(task)
@@ -298,12 +334,11 @@ def create_task(payload: TaskCreate, board: str = "todos") -> dict[str, Any]:
 
 
 @router.patch("/tasks/{task_id}")
-def move_task(task_id: str, payload: TaskMove, board: str = "todos") -> dict[str, Any]:
-    if not kb.board_exists(board):
-        raise HTTPException(status_code=404, detail=f"Board {board!r} is unavailable")
+def move_task(task_id: str, payload: TaskMove, board: str = LOCAL_BOARD) -> dict[str, Any]:
+    board = _require_local_board(board)
     conn = kb.connect(board=board)
     try:
-        return _task_view(_set_lane(conn, task_id, payload.lane))
+        return _task_view(_move_human_lane(conn, task_id, payload.lane))
     finally:
         conn.close()
 
@@ -313,27 +348,26 @@ def capture_inbox(payload: InboxCapture) -> dict[str, Any]:
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
-    if not kb.board_exists("inbox"):
-        kb.create_board("inbox", name="Inbox")
-    conn = kb.connect(board="inbox")
+    if not kb.board_exists(INBOX_BOARD):
+        kb.create_board(INBOX_BOARD, name="Inbox")
+    conn = kb.connect(board=INBOX_BOARD)
     try:
         task_id = kb.create_task(
             conn,
             title=title,
-            body=json.dumps(
-                {
-                    "source": payload.source,
-                    "reason": payload.reason.strip(),
-                    "details": payload.details.strip(),
-                }
-            ),
+            body=_candidate_body(payload),
             tenant="inbox",
             created_by="project-kanban",
-            triage=True,
+            initial_status="blocked",
             idempotency_key=(payload.idempotency_key or "").strip() or None,
-            board="inbox",
+            board=INBOX_BOARD,
         )
         task = kb.get_task(conn, task_id)
+        if task is None:
+            raise HTTPException(status_code=500, detail="Inbox capture failed")
+        if task.status == "blocked" and task.block_kind != "needs_input":
+            _park_for_human(conn, task_id, reason="Inbox candidate awaiting human review")
+            task = kb.get_task(conn, task_id)
         if task is None:
             raise HTTPException(status_code=500, detail="Inbox capture failed")
         return _task_view(task)
@@ -342,32 +376,51 @@ def capture_inbox(payload: InboxCapture) -> dict[str, Any]:
 
 
 @router.post("/inbox/{task_id}/accept")
-def accept_inbox(task_id: str, payload: InboxAccept, board: str = "todos") -> dict[str, Any]:
+def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -> dict[str, Any]:
+    board = _require_local_board(board)
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
-    if not kb.board_exists("inbox") or not kb.board_exists(board):
-        raise HTTPException(status_code=404, detail="Inbox or destination board is unavailable")
-    inbox_conn = kb.connect(board="inbox")
+    if not kb.board_exists(INBOX_BOARD):
+        raise HTTPException(status_code=404, detail="Inbox is unavailable")
+    inbox_conn = kb.connect(board=INBOX_BOARD)
     target_conn = kb.connect(board=board)
     try:
-        candidate = kb.get_task(inbox_conn, task_id)
-        if candidate is None or candidate.status in {"done", "archived"}:
-            raise HTTPException(status_code=404, detail="Inbox candidate not found")
-        action_id = kb.create_task(
-            target_conn,
-            title=title,
-            body=f"Accepted from Inbox candidate {task_id}.",
-            tenant=payload.category,
-            created_by="project-kanban",
-            idempotency_key=f"project-kanban:accept:{task_id}:{board}",
-            board=board,
-        )
-        action = kb.get_task(target_conn, action_id)
-        if action is None:
-            raise HTTPException(status_code=500, detail="Action creation failed")
-        if not _close_candidate(inbox_conn, task_id, f"accepted:{board}:{action_id}"):
-            raise HTTPException(status_code=409, detail="Inbox candidate could not be accepted")
+        with kb.write_txn(inbox_conn):
+            candidate = kb.get_task(inbox_conn, task_id)
+            if candidate is None or candidate.status not in ACTIVE_CANDIDATE_STATUSES:
+                raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
+            action_id = kb.create_task(
+                target_conn,
+                title=title,
+                body=_human_task_body(
+                    f"Accepted from Inbox candidate {task_id}.",
+                    "next",
+                    accepted_from=task_id,
+                ),
+                tenant=payload.category,
+                created_by="project-kanban",
+                initial_status="blocked",
+                idempotency_key=f"project-kanban:accept:{task_id}:{board}",
+                board=board,
+            )
+            _park_for_human(target_conn, action_id, reason="Accepted Inbox action awaiting human work")
+            action = kb.get_task(target_conn, action_id)
+            if action is None:
+                raise HTTPException(status_code=500, detail="Action creation failed")
+            now = int(time.time())
+            result = f"accepted:{board}:{action_id}"
+            updated = inbox_conn.execute(
+                "UPDATE tasks SET status = 'done', completed_at = ?, result = ?, "
+                "idempotency_key = NULL WHERE id = ? AND status = ?",
+                (now, result, task_id, candidate.status),
+            )
+            if updated.rowcount != 1:
+                raise HTTPException(status_code=409, detail="Inbox candidate changed while it was being accepted")
+            inbox_conn.execute(
+                "INSERT INTO task_events (task_id, kind, payload, created_at) VALUES (?, 'completed', ?, ?)",
+                (task_id, json.dumps({"result": result, "source": "project-kanban"}), now),
+            )
         accepted = kb.get_task(inbox_conn, task_id)
         if accepted is None:
             raise HTTPException(status_code=500, detail="Inbox update failed")
@@ -379,12 +432,25 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = "todos") -> di
 
 @router.delete("/inbox/{task_id}")
 def dismiss_inbox(task_id: str) -> dict[str, bool]:
-    if not kb.board_exists("inbox"):
+    if not kb.board_exists(INBOX_BOARD):
         raise HTTPException(status_code=404, detail="Inbox is unavailable")
-    conn = kb.connect(board="inbox")
+    conn = kb.connect(board=INBOX_BOARD)
     try:
-        if not kb.archive_task(conn, task_id):
-            raise HTTPException(status_code=404, detail="Inbox candidate not found")
+        now = int(time.time())
+        with kb.write_txn(conn):
+            placeholders = ",".join("?" for _ in ACTIVE_CANDIDATE_STATUSES)
+            updated = conn.execute(
+                f"UPDATE tasks SET status = 'archived', claim_lock = NULL, "
+                f"claim_expires = NULL, worker_pid = NULL WHERE id = ? "
+                f"AND status IN ({placeholders})",
+                (task_id, *sorted(ACTIVE_CANDIDATE_STATUSES)),
+            )
+            if updated.rowcount != 1:
+                raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
+            conn.execute(
+                "INSERT INTO task_events (task_id, kind, payload, created_at) VALUES (?, 'archived', ?, ?)",
+                (task_id, json.dumps({"source": "project-kanban"}), now),
+            )
         return {"ok": True}
     finally:
         conn.close()

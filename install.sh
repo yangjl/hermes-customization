@@ -17,13 +17,14 @@ desktop_patch_file="$repo_dir/patches/desktop-research-workflow.patch"
 theme_name="hermes-focus"
 
 usage() {
-  echo "Usage: ./install.sh [--theme NAME] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
+  echo "Usage: ./install.sh [--theme NAME] [--enable-project-kanban] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
   echo "Themes: hermes-focus (default), light-lab"
 }
 
 apply_terminal_patch=false
 apply_desktop_patch=false
 install_desktop_app=false
+enable_project_kanban=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --theme)
@@ -41,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install-desktop-app)
       install_desktop_app=true
+      shift
+      ;;
+    --enable-project-kanban)
+      enable_project_kanban=true
       shift
       ;;
     -h|--help)
@@ -88,6 +93,8 @@ install -m 0644 "$repo_dir/desktop-plugins/project-kanban/plugin.js" \
 install -d "$kanban_backend_target_dir/dashboard/dist"
 install -m 0644 "$repo_dir/plugins/project-kanban/plugin.yaml" \
   "$kanban_backend_target_dir/plugin.yaml"
+install -m 0644 "$repo_dir/plugins/project-kanban/__init__.py" \
+  "$kanban_backend_target_dir/__init__.py"
 install -m 0644 "$repo_dir/plugins/project-kanban/dashboard/manifest.json" \
   "$kanban_backend_target_dir/dashboard/manifest.json"
 install -m 0644 "$repo_dir/plugins/project-kanban/dashboard/plugin_api.py" \
@@ -119,27 +126,31 @@ echo "Installed Telegram capture hook to $hook_target_dir"
 if command -v hermes >/dev/null 2>&1; then
   hermes config set dashboard.theme "$theme_name"
   hermes config set display.skin vscode-light-lab
-  hermes plugins enable project-kanban --no-allow-tool-override
 
-  computer_name="${TODO_MACHINE_NAME:-}"
-  if [[ -z "$computer_name" ]] && command -v scutil >/dev/null 2>&1; then
-    computer_name="$(scutil --get ComputerName 2>/dev/null || true)"
-  fi
-  case "$computer_name" in
-    *[Dd]esktop*) board_name="Office Desktop" ;;
-    *) board_name="MacBook" ;;
-  esac
-  if ! hermes kanban boards create todos --name "$board_name" >/dev/null 2>&1; then
-    hermes kanban boards rename todos "$board_name" >/dev/null
-  fi
-  if [[ "$board_name" == "Office Desktop" ]]; then
-    if ! hermes kanban boards create inbox --name Inbox >/dev/null 2>&1; then
-      hermes kanban boards rename inbox Inbox >/dev/null
+  if "$enable_project_kanban"; then
+    hermes plugins enable project-kanban --no-allow-tool-override
+
+    computer_name="${TODO_MACHINE_NAME:-}"
+    if [[ -z "$computer_name" ]] && command -v scutil >/dev/null 2>&1; then
+      computer_name="$(scutil --get ComputerName 2>/dev/null || true)"
     fi
+    case "$computer_name" in
+      *[Dd]esktop*) board_name="Office Desktop" ;;
+      *) board_name="MacBook" ;;
+    esac
+    if ! hermes kanban boards create todos --name "$board_name" >/dev/null 2>&1; then
+      echo "Board todos already exists; preserved its metadata."
+    fi
+    if [[ "$board_name" == "Office Desktop" ]] && \
+       ! hermes kanban boards create inbox --name Inbox >/dev/null 2>&1; then
+      echo "Board inbox already exists; preserved its metadata."
+    fi
+    echo "Activated Project Kanban for $board_name"
+  else
+    echo "Project Kanban installed but disabled; rerun with --enable-project-kanban to opt in."
   fi
   echo "Activated dashboard theme: $theme_name"
   echo "Activated Hermes skin: vscode-light-lab"
-  echo "Activated Project Kanban for $board_name"
 else
   echo "Hermes CLI not found; select $theme_name and vscode-light-lab manually."
 fi

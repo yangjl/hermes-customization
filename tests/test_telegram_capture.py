@@ -40,6 +40,7 @@ class TelegramCaptureTest(unittest.TestCase):
             finally:
                 conn.close()
 
+        assert task is not None
         self.assertEqual(task.status, "blocked")
         self.assertEqual(task.block_kind, "needs_input")
         self.assertEqual(duplicate_id, task_id)

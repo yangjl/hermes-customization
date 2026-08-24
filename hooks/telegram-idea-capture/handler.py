@@ -9,8 +9,9 @@ Capture-only by design. The card holds what you said, verbatim, and deciding
 what it means is a separate act you perform later against the board. A hook
 that tried to be clever here would turn a five-second note into a negotiation.
 
-Cards land in ``triage`` so they remain reviewable Inbox candidates. The hook
-does not assign a category or promote the message into active work.
+Cards land in a sticky ``blocked`` review-only state. They cannot be dispatched
+or auto-decomposed; the Project Kanban Inbox is the only place that promotes
+them into human-managed work after explicit review.
 
 Scope is deliberately narrow:
 
@@ -98,12 +99,31 @@ def _capture(text: str, context: dict) -> str | None:
             "source": platform,
             "reason": f"Explicit {platform.title()} capture prefix",
             "details": "\n".join(detail).strip(),
+            "review_candidate": True,
+            "candidate_stage": "captured",
         })
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:20]
-        return kanban_db.create_task(
-            conn, title=title, body=metadata, triage=True,
+        task_id = kanban_db.create_task(
+            conn, title=title, body=metadata, initial_status="blocked",
             idempotency_key=f"{platform}:{chat or 'direct'}:{digest}",
             created_by=f"{platform}-capture", board=BOARD)
+        task = kanban_db.get_task(conn, task_id)
+        if task is not None and task.status == "blocked" and task.block_kind != "needs_input":
+            with kanban_db.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET block_kind = 'needs_input' WHERE id = ? AND status = 'blocked'",
+                    (task_id,),
+                )
+                conn.execute(
+                    "INSERT INTO task_events (task_id, kind, payload, created_at) "
+                    "VALUES (?, 'blocked', ?, strftime('%s', 'now'))",
+                    (task_id, json.dumps({
+                        "reason": "Inbox candidate awaiting human review",
+                        "kind": "needs_input",
+                        "source": f"{platform}-capture",
+                    })),
+                )
+        return task_id
     finally:
         conn.close()
 

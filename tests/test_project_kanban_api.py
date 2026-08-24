@@ -125,7 +125,9 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual([task["title"] for task in data["lanes"]["waiting"]], ["Wait for sequencing quote"])
         self.assertEqual(data["lanes"]["doing"], [])
         self.assertEqual(data["lanes"]["review"], [])
-        self.assertEqual(data["inbox"], {"available": False, "stages": {}})
+        self.assertFalse(data["inbox"]["available"])
+        self.assertEqual(data["inbox"]["stages"], {})
+        self.assertIn("gateway-local", data["inbox"]["reason"])
 
     def test_create_and_move_task_uses_non_dispatchable_human_workflow_metadata(self):
         created = self.client.post(
@@ -258,6 +260,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         conn = kb.connect(board="todos")
         try:
             unchanged = kb.get_task(conn, task_id)
+            assert unchanged is not None
             self.assertEqual(unchanged.status, "running")
             self.assertIsNotNone(unchanged.claim_lock)
         finally:
