@@ -6,6 +6,7 @@ import {
   host,
   ROUTES_AREA,
   SIDEBAR_NAV_AREA,
+  Tip,
   useMutation,
   useQuery,
   useQueryClient
@@ -15,17 +16,38 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 
 const ID = 'project-kanban'
 const lanes = [
-  { id: 'next', label: 'Next', icon: 'arrow-right' },
-  { id: 'doing', label: 'Doing', icon: 'play' },
-  { id: 'waiting', label: 'Waiting', icon: 'clock' },
-  { id: 'review', label: 'Review', icon: 'eye' }
+  { id: 'next', label: 'Next', icon: 'arrow-right', token: '--ui-blue' },
+  { id: 'doing', label: 'Doing', icon: 'play', token: '--ui-green' },
+  { id: 'waiting', label: 'Waiting', icon: 'clock', token: '--ui-orange' },
+  { id: 'review', label: 'Review', icon: 'eye', token: '--ui-purple' }
 ]
 const categories = [
-  { id: 'main-research', label: 'Main research', icon: 'beaker' },
-  { id: 'student-projects', label: 'Student projects', icon: 'mortar-board' },
-  { id: 'systems-admin', label: 'Systems / admin', icon: 'tools' }
+  { id: 'main-research', label: 'Main research', icon: 'beaker', token: '--ui-blue' },
+  { id: 'student-projects', label: 'Student projects', icon: 'mortar-board', token: '--ui-green' },
+  { id: 'systems-admin', label: 'Systems / admin', icon: 'tools', token: '--ui-purple' }
 ]
 const sourceIcons = { email: 'mail', slack: 'comment-discussion', telegram: 'send', github: 'git-branch', manual: 'edit' }
+// The MVP's per-card priority tag. Native lifecycle cards carry the signal that
+// raised them; human-managed cards are only tagged once someone says so.
+const priorityTags = { github: 'Git activity', email: 'Request', slack: 'Request', telegram: 'Capture' }
+
+// Theme-adaptive colour: a soft fill of the hue, and an ink mixed toward the
+// body text so it stays legible in both light and dark themes. Hex is banned
+// here — every colour resolves from a theme token.
+const tint = (token, percent) => `color-mix(in oklch, var(${token}) ${percent}%, transparent)`
+const ink = token => `color-mix(in oklch, var(${token}) 70%, var(--ui-text-primary))`
+
+function priorityOf(task) {
+  return task.human_managed ? '' : priorityTags[task.source] || ''
+}
+
+function cardLinks(task) {
+  const links = task.links || {}
+  const badges = [{ icon: 'layout', label: 'Kanban · act', token: '--ui-blue' }]
+  if (links.obsidian) badges.push({ icon: 'book', label: `Obsidian · ${links.obsidian}`, token: '--ui-purple' })
+  if (links.github) badges.push({ icon: 'git-branch', label: `GitHub · ${links.github}`, token: '--ui-text-tertiary' })
+  return badges
+}
 
 function useWidth() {
   const [width, setWidth] = useState(() => window.innerWidth)
@@ -58,45 +80,135 @@ function useKanbanMutation(ctx) {
   })
 }
 
-function TaskCard({ task, lane, mutate }) {
+function TaskCard({ task, lane, mutate, onOpen, active }) {
   const index = lanes.findIndex(item => item.id === lane)
   const move = destination => mutate.mutate({ path: `/tasks/${task.id}`, method: 'PATCH', body: { lane: destination } })
+  const priority = priorityOf(task)
+  const category = categories.find(item => item.id === task.category) || categories[2]
   return jsxs('article', {
-    className: 'rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) p-3',
+    className: `rounded-lg border bg-(--ui-chat-surface-background) p-3 ${active ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary)'}`,
     children: [
-      jsx('div', { className: 'text-sm font-medium leading-snug', children: task.title }),
+      jsxs('div', {
+        className: 'flex items-start justify-between gap-2',
+        children: [
+          jsx('span', {
+            className: 'truncate rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+            style: { background: tint(category.token, 16), color: ink(category.token) },
+            children: category.label
+          }),
+          priority ? jsx('span', {
+            className: 'shrink-0 text-[9px] font-bold uppercase tracking-wide',
+            style: { color: ink('--ui-red') },
+            children: priority
+          }) : null
+        ]
+      }),
+      jsx('button', {
+        type: 'button',
+        onClick: () => onOpen(task),
+        className: 'mt-1.5 block w-full text-left text-sm font-medium leading-snug hover:underline',
+        children: task.title
+      }),
       task.body ? jsx('p', { className: 'mt-1 line-clamp-2 text-xs leading-relaxed text-(--ui-text-secondary)', children: task.body }) : null,
       jsxs('div', {
         className: 'mt-2 flex items-center justify-between gap-2',
         children: [
-          jsx('span', { className: 'truncate text-[11px] text-(--ui-text-tertiary)', children: categories.find(item => item.id === task.category)?.label || 'Systems / admin' }),
+          jsx('span', {
+            className: 'flex items-center gap-1',
+            children: cardLinks(task).map(badge => jsx(Tip, {
+              label: badge.label,
+              children: jsx('span', {
+                className: 'grid size-5 place-items-center rounded border',
+                style: { background: tint(badge.token, 12), borderColor: tint(badge.token, 35), color: ink(badge.token) },
+                children: jsx(Codicon, { name: badge.icon })
+              })
+            }, badge.icon))
+          }),
           task.human_managed ? jsxs('span', {
             className: 'flex items-center',
             children: [
               index > 0 ? jsx(IconButton, { icon: 'chevron-left', label: `Move ${task.title} left`, disabled: mutate.isPending, onClick: () => move(lanes[index - 1].id) }) : null,
               index < lanes.length - 1 ? jsx(IconButton, { icon: 'chevron-right', label: `Move ${task.title} right`, disabled: mutate.isPending, onClick: () => move(lanes[index + 1].id) }) : null
             ]
-          }) : jsx('span', { className: 'text-[11px] text-(--ui-text-tertiary)', children: 'Native lifecycle · read only' })
+          }) : jsx('span', { className: 'text-[11px] text-(--ui-text-tertiary)', children: 'Native · read only' })
         ]
       })
     ]
   })
 }
 
-function Lane({ lane, tasks, mutate }) {
+function TaskDetail({ task, lane, onClose, docked }) {
+  const links = task.links || {}
+  const category = categories.find(item => item.id === task.category) || categories[2]
+  const rows = [
+    ['Kanban', `${lanes.find(item => item.id === lane)?.label || 'Next'} · ${category.label}`],
+    ['Obsidian', links.obsidian || 'No knowledge note linked'],
+    ['GitHub', links.github || 'No repository linked'],
+    ['Managed by', task.human_managed ? 'You — movable between lanes' : 'Native worker lifecycle — read only']
+  ]
+  return jsxs('aside', {
+    'aria-label': `Details: ${task.title}`,
+    className: `flex flex-col overflow-hidden border-l border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) ${docked ? 'w-80 shrink-0' : 'fixed inset-y-0 right-0 z-50 w-full max-w-sm shadow-xl'}`,
+    children: [
+      jsxs('div', {
+        className: 'flex items-start justify-between gap-2 border-b border-(--ui-stroke-secondary) p-3',
+        children: [
+          jsxs('div', {
+            className: 'min-w-0',
+            children: [
+              jsx('span', {
+                className: 'inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+                style: { background: tint(category.token, 16), color: ink(category.token) },
+                children: category.label
+              }),
+              jsx('h2', { className: 'mt-1.5 text-sm font-medium leading-snug', children: task.title })
+            ]
+          }),
+          jsx(IconButton, { icon: 'close', label: 'Close details', onClick: onClose })
+        ]
+      }),
+      jsxs('div', {
+        className: 'min-h-0 flex-1 overflow-auto p-3',
+        children: [
+          task.body ? jsx('p', { className: 'mb-3 text-xs leading-relaxed whitespace-pre-wrap text-(--ui-text-secondary)', children: task.body }) : null,
+          jsx('dl', {
+            className: 'overflow-hidden rounded-md border border-(--ui-stroke-secondary)',
+            children: rows.flatMap(([label, value], row) => [
+              jsx('dt', { className: `bg-(--ui-bg-quinary) px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary) ${row ? 'border-t border-(--ui-stroke-secondary)' : ''}`, children: label }, `${label}-l`),
+              jsx('dd', { className: 'm-0 px-2.5 py-2 text-xs break-words', children: value }, `${label}-v`)
+            ])
+          }),
+          jsx('div', {
+            className: 'mt-3 rounded-r border-l-[3px] px-2.5 py-2 text-[11px] text-(--ui-text-secondary)',
+            style: { background: tint('--ui-blue', 10), borderColor: ink('--ui-blue') },
+            children: 'Boundary: move the work in Kanban, record reasoning in Obsidian, inspect code in GitHub. This pane links these systems; it does not copy them.'
+          })
+        ]
+      })
+    ]
+  })
+}
+
+function Lane({ lane, tasks, mutate, onOpen, activeId }) {
   return jsxs('section', {
     className: 'min-w-0 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-quinary) p-2.5',
     children: [
       jsxs('header', {
         className: 'mb-2 flex items-center justify-between px-1',
         children: [
-          jsxs('div', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: lane.icon }), jsx('h2', { className: 'text-sm font-medium', children: lane.label })] }),
-          jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: tasks.length })
+          jsxs('div', {
+            className: 'flex items-center gap-2',
+            children: [
+              jsx('span', { className: 'size-2 shrink-0 rounded-full', style: { background: `var(${lane.token})` } }),
+              jsx('h2', { className: 'text-sm font-medium', children: lane.label })
+            ]
+          }),
+          jsx('span', { className: 'rounded-full bg-(--ui-bg-quaternary) px-1.5 text-xs tabular-nums text-(--ui-text-tertiary)', children: tasks.length })
         ]
       }),
       tasks.length
-        ? jsx('div', { className: 'flex flex-col gap-2', children: tasks.map(task => jsx(TaskCard, { task, lane: lane.id, mutate }, task.id)) })
-        : jsx('div', { className: 'rounded-md border border-dashed border-(--ui-stroke-secondary) px-3 py-8 text-center text-xs text-(--ui-text-tertiary)', children: 'Clear' })
+        ? jsx('div', { className: 'flex flex-col gap-2', children: tasks.map(task => jsx(TaskCard, { task, lane: lane.id, mutate, onOpen, active: task.id === activeId }, task.id)) })
+        : jsx('div', { className: 'rounded-md border border-dashed border-(--ui-stroke-secondary) px-3 py-8 text-center text-xs text-(--ui-text-tertiary)', children: 'No actions here' })
     ]
   })
 }
@@ -226,15 +338,25 @@ function Inbox({ data, mutate }) {
 
 function Dashboard({ ctx }) {
   const width = useWidth()
-  const wide = width >= 1180
-  const medium = width >= 720
-  const columns = wide ? 4 : medium ? 2 : 1
   const [view, setView] = useState('board')
   const [selectedLane, setSelectedLane] = useState('next')
   const [category, setCategory] = useState('all')
   const [adding, setAdding] = useState(false)
+  const [detail, setDetail] = useState(null)
+  // The docked panel takes 320px out of the board, so the lane breakpoints
+  // measure the space the board actually keeps.
+  const wide = width >= 1180
+  const board = width - (detail && wide ? 320 : 0)
+  const columns = board >= 1180 ? 4 : board >= 720 ? 2 : 1
   const query = useQuery({ queryKey: [ID, 'snapshot'], queryFn: () => ctx.rest('/snapshot'), refetchInterval: 5000 })
   const mutate = useKanbanMutation(ctx)
+
+  useEffect(() => {
+    if (!detail) return undefined
+    const escape = event => { if (event.key === 'Escape') setDetail(null) }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [detail])
 
   if (query.isPending) return jsx('div', { className: 'grid h-full place-items-center text-sm text-(--ui-text-secondary)', children: 'Loading Kanban…' })
   if (query.isError) return jsx(ErrorState, { title: 'Kanban unavailable', description: query.error?.message || 'The backend did not respond.', action: jsx(Button, { onClick: () => query.refetch(), children: 'Retry' }) })
@@ -262,15 +384,21 @@ function Dashboard({ ctx }) {
           view === 'board' && columns === 1 ? jsx('div', { className: 'mt-2 flex gap-1 overflow-auto', children: lanes.map(item => jsx(Button, { variant: selectedLane === item.id ? 'secondary' : 'ghost', onClick: () => setSelectedLane(item.id), children: item.label }, item.id)) }) : null
         ]
       }),
-      jsxs('main', {
-        className: 'min-h-0 flex-1 overflow-auto p-3 md:p-4',
+      jsxs('div', {
+        className: 'flex min-h-0 flex-1',
         children: [
-          view === 'board' && adding ? jsx(ActionForm, { onClose: () => setAdding(false), mutate }) : null,
-          view === 'board' ? jsx('div', {
-            className: adding ? 'mt-3 grid min-w-0 gap-3' : 'grid min-w-0 gap-3',
-            style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
-            children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate }, item.id))
-          }) : jsx(Inbox, { data: data.inbox, mutate })
+          jsxs('main', {
+            className: 'min-h-0 min-w-0 flex-1 overflow-auto p-3 md:p-4',
+            children: [
+              view === 'board' && adding ? jsx(ActionForm, { onClose: () => setAdding(false), mutate }) : null,
+              view === 'board' ? jsx('div', {
+                className: adding ? 'mt-3 grid min-w-0 gap-3' : 'grid min-w-0 gap-3',
+                style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
+                children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate, activeId: detail?.task.id, onOpen: task => setDetail({ task, lane: item.id }) }, item.id))
+              }) : jsx(Inbox, { data: data.inbox, mutate })
+            ]
+          }),
+          detail ? jsx(TaskDetail, { task: detail.task, lane: detail.lane, docked: wide, onClose: () => setDetail(null) }) : null
         ]
       })
     ]

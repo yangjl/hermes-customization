@@ -137,6 +137,26 @@ def _candidate_body(payload: InboxCapture) -> str:
     )
 
 
+def _links(details: str) -> dict[str, str]:
+    """Obsidian note and GitHub URL as written into a card's details block.
+
+    `scripts/refresh-todo-vault.py` writes `GitHub: <url>` and `Note: <path>`
+    lines when it raises a card. Parsing them here keeps the desktop plugin
+    free of body-format knowledge.
+    """
+    links = {"obsidian": "", "github": ""}
+    for line in details.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        label = key.strip().lower()
+        if label == "note" and not links["obsidian"]:
+            links["obsidian"] = value.strip()
+        elif label == "github" and not links["github"]:
+            links["github"] = value.strip()
+    return links
+
+
 def _task_view(task: kb.Task) -> dict[str, Any]:
     source = "manual"
     reason = ""
@@ -173,6 +193,7 @@ def _task_view(task: kb.Task) -> dict[str, Any]:
         "suggestion_reason": suggestion_reason,
         "human_managed": human_managed,
         "workflow_lane": workflow_lane or None,
+        "links": _links(body),
     }
 
 

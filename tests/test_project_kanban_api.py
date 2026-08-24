@@ -129,6 +129,29 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(data["inbox"]["stages"], {})
         self.assertIn("gateway-local", data["inbox"]["reason"])
 
+    def test_task_view_exposes_obsidian_and_github_links_from_details(self):
+        details = "\n".join([
+            "jyanglab/GreenDB was pushed on 2026-08-22.",
+            "",
+            "GitHub: https://github.com/jyanglab/GreenDB",
+            "Note: Projects/GitHub/jyanglab--GreenDB.md",
+        ])
+
+        self.assertEqual(
+            self.module._links(details),
+            {
+                "github": "https://github.com/jyanglab/GreenDB",
+                "obsidian": "Projects/GitHub/jyanglab--GreenDB.md",
+            },
+        )
+
+    def test_task_view_reports_empty_links_when_details_carry_none(self):
+        self.assertEqual(self.module._links(""), {"obsidian": "", "github": ""})
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        self.assertEqual(
+            snapshot["lanes"]["next"][0]["links"], {"obsidian": "", "github": ""}
+        )
+
     def test_create_and_move_task_uses_non_dispatchable_human_workflow_metadata(self):
         created = self.client.post(
             "/api/plugins/project-kanban/tasks",
