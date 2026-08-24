@@ -120,21 +120,23 @@ sizing, and profile switching all revert, and the stashed copy is easy to miss.
 
 `scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies the
 patch with a three-way merge, rebuilds the app, and reinstalls it. It exits
-silently when the patch is already present, so it is safe to run often, and it
-refuses to touch a source tree with uncommitted changes rather than tangling
-work in progress.
+silently when the patch is already present, and it refuses to touch a source
+tree with uncommitted changes rather than tangling work in progress.
 
-Schedule it hourly so an update never leaves an unpatched Hermes for long:
+Schedule it weekly, before the work week:
 
 ```bash
-hermes cron create "0 * * * *" --no-agent \
+hermes cron create "0 6 * * 1" --no-agent \
   --script reapply-desktop-patch.sh \
   --name "Restore Desktop patch after Hermes update"
 ```
 
-No model runs — the script is the job, and it only speaks when it did something.
-The job needs a running gateway (`hermes gateway start`). Or run it by hand
-after an update:
+Weekly matches how often updates actually land. Checking more often does not
+help: the reverted Hermes is only visible while using Desktop, seeing either
+version takes a restart regardless, and a firing run means an unattended
+multi-minute Electron build that swaps `/Applications/Hermes.app`. Monday at
+6am puts that build before you sit down instead of in the middle of a session.
+Run it by hand when an update lands mid-week:
 
 ```bash
 ./scripts/reapply-desktop-patch.sh
@@ -156,6 +158,10 @@ git reset
 Keep `apps/desktop/index.html` out of the patch. A packaged build rewrites it
 with hashed asset paths, and capturing that makes the patch reinstall one
 build's bundle names into the next build's source.
+
+No model runs for this job — the script is the job, and it only speaks when it
+did something. It fires only while the gateway is running
+(`hermes gateway start`).
 
 ## Todo MVP
 
