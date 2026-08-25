@@ -10,7 +10,7 @@ test('desktop plugin registers the Kanban route below Research', async () => {
   const research = await readFile(researchUrl, 'utf8')
   assert.match(source, /SIDEBAR_NAV_AREA/)
   assert.match(source, /path: '\/project-kanban'/)
-  assert.match(source, /label: 'Kanban'/)
+  assert.match(source, /label: 'Project Kanban'/)
   assert.match(source, /order: 101/)
   assert.match(research, /SIDEBAR_NAV_AREA, order: 100/)
 })

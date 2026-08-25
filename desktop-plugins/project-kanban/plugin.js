@@ -550,6 +550,12 @@ export default {
   defaultEnabled: false,
   register(ctx) {
     ctx.register({ id: 'page', area: ROUTES_AREA, data: { path: '/project-kanban' }, render: () => jsx(Dashboard, { ctx }) })
-    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, order: 101, data: { path: '/project-kanban', label: 'Kanban', codicon: 'layout' } })
+    ctx.register({ id: 'nav', area: SIDEBAR_NAV_AREA, order: 101, data: { path: '/project-kanban', label: 'Project Kanban', codicon: 'layout' } })
+    // Mirrors research-dashboard's pattern: a persistent docked pane with the
+    // SAME content as the routed page. The route+nav-row pair alone can leave
+    // the board invisible behind a pinned session tile on a plain click (a
+    // Hermes Desktop tile/route interaction quirk); the always-resident dock
+    // guarantees the board is visible without depending on that route swap.
+    ctx.register({ id: 'dashboard', area: 'panes', title: 'Project Kanban', data: { placement: 'right', width: '640px' }, render: () => jsx(Dashboard, { ctx }) })
   }
 }
