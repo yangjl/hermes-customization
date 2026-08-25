@@ -26,6 +26,8 @@ const categories = [
   { id: 'student-projects', label: 'Student projects', icon: 'mortar-board', token: '--ui-green' },
   { id: 'systems-admin', label: 'Systems / admin', icon: 'tools', token: '--ui-purple' }
 ]
+const uncategorized = { id: 'unsorted', label: 'Needs category', icon: 'question', token: '--ui-text-tertiary' }
+const categoryOf = task => task.category === 'unsorted' ? uncategorized : categories.find(item => item.id === task.category) || uncategorized
 const sourceIcons = { email: 'mail', slack: 'comment-discussion', telegram: 'send', github: 'git-branch', manual: 'edit' }
 // The MVP's per-card priority tag. Native lifecycle cards carry the signal that
 // raised them; human-managed cards are only tagged once someone says so.
@@ -43,9 +45,10 @@ function priorityOf(task) {
 
 function cardLinks(task) {
   const links = task.links || {}
+  const project = task.project || {}
   const badges = [{ icon: 'layout', label: 'Kanban · act', token: '--ui-blue' }]
-  if (links.obsidian) badges.push({ icon: 'book', label: `Obsidian · ${links.obsidian}`, token: '--ui-purple' })
-  if (links.github) badges.push({ icon: 'git-branch', label: `GitHub · ${links.github}`, token: '--ui-text-tertiary' })
+  if (project.note || links.obsidian) badges.push({ icon: 'book', label: `Obsidian · ${project.note || links.obsidian}`, token: '--ui-purple' })
+  if (project.github?.repo || links.github) badges.push({ icon: 'git-branch', label: `GitHub · ${project.github?.repo || links.github}`, token: '--ui-text-tertiary' })
   return badges
 }
 
@@ -84,7 +87,8 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
   const index = lanes.findIndex(item => item.id === lane)
   const move = destination => mutate.mutate({ path: `/tasks/${task.id}`, method: 'PATCH', body: { lane: destination } })
   const priority = priorityOf(task)
-  const category = categories.find(item => item.id === task.category) || categories[2]
+  const category = categoryOf(task)
+  const project = task.project
   return jsxs('article', {
     className: `rounded-lg border bg-(--ui-chat-surface-background) p-3 ${active ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary)'}`,
     children: [
@@ -94,7 +98,7 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
           jsx('span', {
             className: 'truncate rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
             style: { background: tint(category.token, 16), color: ink(category.token) },
-            children: category.label
+            children: project?.title || category.label
           }),
           priority ? jsx('span', {
             className: 'shrink-0 text-[9px] font-bold uppercase tracking-wide',
@@ -139,11 +143,18 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
 
 function TaskDetail({ task, lane, onClose, docked }) {
   const links = task.links || {}
-  const category = categories.find(item => item.id === task.category) || categories[2]
+  const category = categoryOf(task)
+  const project = task.project
+  const observation = project?.observation
   const rows = [
     ['Kanban', `${lanes.find(item => item.id === lane)?.label || 'Next'} · ${category.label}`],
-    ['Obsidian', links.obsidian || 'No knowledge note linked'],
-    ['GitHub', links.github || 'No repository linked'],
+    ['Project', project?.title || 'Unlinked action'],
+    ['Goal', project?.goal || 'No canonical goal linked'],
+    ['Project next action', project?.next_action || 'No canonical next action linked'],
+    ['Blocker', project?.blocker || 'None recorded'],
+    ['Obsidian', project?.note || links.obsidian || 'No knowledge note linked'],
+    ['GitHub', project?.github?.repo || links.github || 'No repository linked'],
+    ['Last observed on', observation ? `${observation.device}${observation.stale ? ' · stale' : ''} · ${observation.dirty_count} dirty · ${observation.ahead} ahead` : 'No device observation'],
     ['Managed by', task.human_managed ? 'You — movable between lanes' : 'Native worker lifecycle — read only']
   ]
   return jsxs('aside', {
@@ -213,13 +224,13 @@ function Lane({ lane, tasks, mutate, onOpen, activeId }) {
   })
 }
 
-function ActionForm({ onClose, mutate }) {
+function ActionForm({ onClose, mutate, projects }) {
   const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('main-research')
+  const [projectId, setProjectId] = useState(projects[0]?.project_id || '')
   const submit = async event => {
     event.preventDefault()
-    if (!title.trim()) return
-    await mutate.mutateAsync({ path: '/tasks', body: { title, category, lane: 'next' } })
+    if (!title.trim() || !projectId) return
+    await mutate.mutateAsync({ path: '/tasks', body: { title, project_id: projectId, lane: 'next' } })
     onClose()
   }
   return jsxs('form', {
@@ -235,24 +246,25 @@ function ActionForm({ onClose, mutate }) {
         className: 'min-w-0 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm outline-none focus:border-(--ui-accent)'
       }),
       jsx('select', {
-        value: category,
-        onChange: event => setCategory(event.target.value),
-        'aria-label': 'Project category',
+        value: projectId,
+        onChange: event => setProjectId(event.target.value),
+        'aria-label': 'Canonical project',
         className: 'rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm',
-        children: categories.map(item => jsx('option', { value: item.id, children: item.label }, item.id))
+        children: projects.map(item => jsx('option', { value: item.project_id, children: item.title }, item.project_id))
       }),
-      jsxs('div', { className: 'flex gap-1', children: [jsx(Button, { type: 'submit', disabled: mutate.isPending || !title.trim(), children: 'Add' }), jsx(Button, { type: 'button', variant: 'ghost', onClick: onClose, children: 'Cancel' })] })
+      jsxs('div', { className: 'flex gap-1', children: [jsx(Button, { type: 'submit', disabled: mutate.isPending || !title.trim() || !projectId, children: 'Add' }), jsx(Button, { type: 'button', variant: 'ghost', onClick: onClose, children: 'Cancel' })] })
     ]
   })
 }
 
-function InboxCard({ task, mutate }) {
+function InboxCard({ task, mutate, projects }) {
   const [editing, setEditing] = useState(false)
   const [title, setTitle] = useState(task.suggested_title || task.title)
-  const [category, setCategory] = useState(task.suggested_category || 'main-research')
+  const [projectId, setProjectId] = useState(projects[0]?.project_id || '')
   const accept = async event => {
     event.preventDefault()
-    await mutate.mutateAsync({ path: `/inbox/${task.id}/accept`, body: { title, category } })
+    if (!projectId) return
+    await mutate.mutateAsync({ path: `/inbox/${task.id}/accept`, body: { title, project_id: projectId } })
     setEditing(false)
   }
   if (editing) {
@@ -262,8 +274,8 @@ function InboxCard({ task, mutate }) {
       children: [
         jsx('input', { value: title, onChange: event => setTitle(event.target.value), 'aria-label': 'Accepted task title', className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm' }),
         jsxs('div', { className: 'mt-2 flex flex-wrap items-center gap-2', children: [
-          jsx('select', { value: category, onChange: event => setCategory(event.target.value), 'aria-label': 'Accepted task category', className: 'min-w-40 flex-1 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm', children: categories.map(item => jsx('option', { value: item.id, children: item.label }, item.id)) }),
-          jsx(Button, { type: 'submit', disabled: mutate.isPending || !title.trim(), children: 'Accept' }),
+          jsx('select', { value: projectId, onChange: event => setProjectId(event.target.value), 'aria-label': 'Accepted task project', className: 'min-w-40 flex-1 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm', children: projects.map(item => jsx('option', { value: item.project_id, children: item.title }, item.project_id)) }),
+          jsx(Button, { type: 'submit', disabled: mutate.isPending || !title.trim() || !projectId, children: 'Accept' }),
           jsx(Button, { type: 'button', variant: 'ghost', onClick: () => setEditing(false), children: 'Cancel' })
         ] })
       ]
@@ -308,10 +320,10 @@ function ManualCapture({ mutate }) {
   })
 }
 
-function Inbox({ data, mutate }) {
+function Inbox({ data, mutate, projects }) {
   if (!data.available) {
     return jsx(EmptyState, {
-      title: 'Inbox unavailable',
+      title: 'Office Inbox lives on the office desktop',
       description: data.reason || 'Inbox boards are gateway-local; Project Kanban does not sync another machine’s board.'
     })
   }
@@ -325,15 +337,139 @@ function Inbox({ data, mutate }) {
       jsxs('div', { className: 'mb-1 flex items-center justify-between', children: [jsx('div', { className: 'text-sm text-(--ui-text-secondary)', children: 'Review each candidate before it becomes human-managed work.' }), jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: `${reviewable.length} to review` })] }),
       captured.length ? jsxs('section', { children: [
         jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Captured' }),
-        jsx('div', { className: 'flex flex-col gap-2', children: captured.map(task => jsx(InboxCard, { task, mutate }, task.id)) })
+        jsx('div', { className: 'flex flex-col gap-2', children: captured.map(task => jsx(InboxCard, { task, mutate, projects }, task.id)) })
       ] }) : null,
       suggested.length ? jsxs('section', { className: captured.length ? 'mt-2' : '', children: [
         jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Legacy suggestions' }),
-        jsx('div', { className: 'flex flex-col gap-2', children: suggested.map(task => jsx(InboxCard, { task, mutate }, task.id)) })
+        jsx('div', { className: 'flex flex-col gap-2', children: suggested.map(task => jsx(InboxCard, { task, mutate, projects }, task.id)) })
       ] }) : null,
       reviewable.length ? null : jsx(EmptyState, { title: 'Inbox clear', description: 'Email, Slack, Telegram, GitHub, and manual captures appear here.' })
     ]
   })
+}
+
+function EvidenceChip({ children, warning = false }) {
+  const token = warning ? '--ui-orange' : '--ui-text-tertiary'
+  return jsx('span', {
+    className: 'rounded px-1.5 py-0.5 text-[10px]',
+    style: { background: tint(token, 12), color: ink(token) },
+    children
+  })
+}
+
+function ProjectDetail({ project, ctx, onBack }) {
+  const observation = project.observation
+  const github = project.github || {}
+  const openObsidian = () => project.note_path && ctx.os.openExternal(`obsidian://open?path=${encodeURIComponent(project.note_path)}`)
+  const revealNote = () => project.note_path && ctx.os.revealPath(project.note_path)
+  const openGithub = () => github.repo && ctx.os.openExternal(`https://github.com/${github.repo}`)
+  return jsxs('section', {
+    'aria-label': `Project: ${project.title}`,
+    className: 'min-w-0 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) p-4',
+    children: [
+      onBack ? jsx(Button, { variant: 'ghost', onClick: onBack, className: 'mb-2', children: '‹ Projects' }) : null,
+      jsxs('div', { className: 'flex items-start justify-between gap-3', children: [
+        jsxs('div', { className: 'min-w-0', children: [
+          jsx('div', { className: 'text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Canonical project' }),
+          jsx('h2', { className: 'mt-1 text-lg font-medium', children: project.title }),
+          jsx('div', { className: 'mt-1 text-xs text-(--ui-text-tertiary)', children: `${project.project_id} · ${categoryOf(project).label}` })
+        ] }),
+        jsx(EvidenceChip, { children: 'Read-only' })
+      ] }),
+      jsx('dl', {
+        className: 'mt-4 overflow-hidden rounded-md border border-(--ui-stroke-secondary)',
+        children: [
+          ['Goal', project.goal || 'No goal recorded'],
+          ['Next action', project.next_action || 'No next action recorded'],
+          ['Blocker', project.blocker || 'None recorded']
+        ].flatMap(([label, value], index) => [
+          jsx('dt', { className: `bg-(--ui-bg-quinary) px-3 py-1.5 text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary) ${index ? 'border-t border-(--ui-stroke-secondary)' : ''}`, children: label }, `${label}-label`),
+          jsx('dd', { className: 'm-0 px-3 py-2 text-sm whitespace-pre-wrap', children: value }, `${label}-value`)
+        ])
+      }),
+      jsxs('div', { className: 'mt-3 flex flex-wrap gap-2', children: [
+        jsx(Button, { onClick: openObsidian, disabled: !project.note_path, children: 'Open in Obsidian' }),
+        jsx(Button, { variant: 'secondary', onClick: revealNote, disabled: !project.note_path, children: 'Reveal note' }),
+        jsx(Button, { variant: 'secondary', onClick: openGithub, disabled: !github.repo, children: 'Open GitHub' })
+      ] }),
+      jsx('h3', { className: 'mt-5 text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Activity evidence · never changes project status' }),
+      jsxs('div', { className: 'mt-2 grid gap-2 sm:grid-cols-2', children: [
+        jsxs('div', { className: 'rounded-md border border-(--ui-stroke-secondary) p-3', children: [
+          jsx('div', { className: 'text-xs font-medium', children: 'GitHub' }),
+          jsx('div', { className: 'mt-1 text-sm', children: github.repo || 'No repository linked' }),
+          jsx('div', { className: 'mt-1 text-[11px] text-(--ui-text-tertiary)', children: github.pushed_at ? `Last push ${github.pushed_at}` : 'No GitHub activity available' })
+        ] }),
+        jsxs('div', { className: 'rounded-md border border-(--ui-stroke-secondary) p-3', children: [
+          jsxs('div', { className: 'flex items-center justify-between gap-2', children: [
+            jsx('div', { className: 'text-xs font-medium', children: 'Device evidence' }),
+            observation?.stale ? jsx(EvidenceChip, { warning: true, children: 'Stale' }) : null
+          ] }),
+          jsx('div', { className: 'mt-1 text-sm', children: observation ? `Last observed on ${observation.device}` : 'No device observation' }),
+          observation ? jsx('div', { className: 'mt-1 text-[11px] text-(--ui-text-tertiary)', children: `Observed ${observation.observed_at}` }) : null,
+          observation?.activity_at ? jsx('div', { className: 'text-[11px] text-(--ui-text-tertiary)', children: `Activity ${observation.activity_at}` }) : null,
+          observation ? jsxs('div', { className: 'mt-2 flex flex-wrap gap-1.5', children: [
+            jsx(EvidenceChip, { warning: observation.dirty_count > 0, children: `${observation.dirty_count} dirty` }),
+            jsx(EvidenceChip, { warning: observation.ahead > 0, children: `${observation.ahead} ahead` }),
+            jsx(EvidenceChip, { warning: observation.behind > 0, children: `${observation.behind} behind` })
+          ] }) : null
+        ] })
+      ] })
+    ]
+  })
+}
+
+function Projects({ data, ctx }) {
+  const items = data.items || []
+  const unmatched = data.unmatched || []
+  const narrow = useWidth() < 720
+  const [selectedId, setSelectedId] = useState('')
+  const [showUnmatched, setShowUnmatched] = useState(false)
+  const selected = narrow
+    ? items.find(item => item.project_id === selectedId)
+    : items.find(item => item.project_id === selectedId) || items[0]
+  useEffect(() => {
+    const keydown = event => {
+      if (event.key === 'Escape' && narrow && selectedId) setSelectedId('')
+    }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  }, [narrow, selectedId])
+  if (!items.length && !unmatched.length) {
+    return jsx(EmptyState, { title: 'No managed projects', description: 'Add project_id and project_category to an active Obsidian project note.' })
+  }
+  const list = showUnmatched ? jsxs('div', { className: 'flex flex-col gap-2', children: [
+    jsx('div', { className: 'rounded-md border border-(--ui-stroke-secondary) p-3 text-xs text-(--ui-text-secondary)', children: 'Unmatched evidence is not a managed project and cannot create actions.' }),
+    ...unmatched.map(item => jsxs('div', { className: 'rounded-md border border-(--ui-stroke-secondary) p-3', children: [
+      jsx('div', { className: 'text-sm font-medium', children: item.source }),
+      jsx('div', { className: 'mt-1 text-xs text-(--ui-text-tertiary)', children: `${item.kind} · Last observed on ${item.device}${item.stale ? ' · stale' : ''}` })
+    ] }, `${item.device}-${item.source}`))
+  ] }) : jsx('div', {
+    className: 'flex flex-col gap-2',
+    children: items.map(project => jsx('button', {
+      type: 'button',
+      onClick: () => setSelectedId(project.project_id),
+      className: `rounded-md border p-3 text-left ${selected?.project_id === project.project_id ? 'border-(--ui-accent) bg-(--ui-bg-quinary)' : 'border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background)'}`,
+      children: jsxs('span', { className: 'block min-w-0', children: [
+        jsxs('span', { className: 'flex items-start justify-between gap-2', children: [
+          jsx('span', { className: 'truncate text-sm font-medium', children: project.title }),
+          jsx(EvidenceChip, { children: categoryOf(project).label })
+        ] }),
+        jsx('span', { className: 'mt-1 block truncate text-xs text-(--ui-text-secondary)', children: `Next: ${project.next_action || 'Not recorded'}` }),
+        jsx('span', { className: `mt-1.5 block text-[11px] ${project.observation?.stale ? 'text-(--ui-orange)' : 'text-(--ui-text-tertiary)'}`, children: project.observation ? `Last observed on ${project.observation.device}${project.observation.stale ? ' · stale' : ''}` : 'No device observation' })
+      ] })
+    }, project.project_id))
+  })
+  return jsxs('div', { className: 'mx-auto w-full max-w-6xl', children: [
+    data.warnings?.length ? jsx('div', { className: 'mb-3 rounded-md border border-(--ui-orange) p-2 text-xs text-(--ui-text-secondary)', children: `${data.warnings.length} project data warning${data.warnings.length === 1 ? '' : 's'}` }) : null,
+    jsxs('div', { className: 'mb-3 flex items-center justify-between gap-2', children: [
+      jsx('div', { className: 'text-sm text-(--ui-text-secondary)', children: `${items.length} canonical projects · Obsidian truth first` }),
+      jsx(Button, { variant: showUnmatched ? 'secondary' : 'ghost', onClick: () => setShowUnmatched(value => !value), children: `Unmatched evidence · ${unmatched.length}` })
+    ] }),
+    jsxs('div', { className: 'grid min-w-0 gap-3', style: { gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : 'minmax(280px, 2fr) minmax(360px, 3fr)' }, children: [
+      !narrow || !selected || showUnmatched ? jsx('div', { className: 'min-w-0', children: list }) : null,
+      !showUnmatched && selected ? jsx(ProjectDetail, { project: selected, ctx, onBack: narrow ? () => setSelectedId('') : null }) : null
+    ] })
+  ] })
 }
 
 function Dashboard({ ctx }) {
@@ -370,10 +506,11 @@ function Dashboard({ ctx }) {
         className: 'border-b border-(--ui-stroke-secondary) p-3 md:p-4',
         children: [
           jsxs('div', { className: 'flex flex-wrap items-center justify-between gap-2', children: [
-            jsxs('div', { className: 'min-w-0', children: [jsxs('h1', { className: 'flex items-center gap-2 truncate text-lg font-medium', children: [jsx(Codicon, { name: data.machine.board === 'todos' ? 'device-desktop' : 'device-mobile' }), data.machine.name] }), jsx('div', { className: 'mt-0.5 text-xs text-(--ui-text-tertiary)', children: `${data.projects.total_active} active projects${data.projects.needs_category ? ` · ${data.projects.needs_category} need category` : ''}` })] }),
+            jsxs('div', { className: 'min-w-0', children: [jsxs('h1', { className: 'flex items-center gap-2 truncate text-lg font-medium', children: [jsx(Codicon, { name: 'project' }), 'Project Kanban'] }), jsx('div', { className: 'mt-0.5 text-xs text-(--ui-text-tertiary)', children: `${data.projects.total_active} canonical projects · Obsidian truth · native local actions` })] }),
             jsxs('div', { className: 'flex items-center gap-1', children: [
-              jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => setView('board'), 'aria-label': 'Show action board', children: jsx(Codicon, { name: 'layout' }) }),
-              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => setView('inbox'), 'aria-label': 'Show Inbox', children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'inbox' }), data.inbox.available ? jsx('span', { className: 'text-xs tabular-nums', children: (data.inbox.stages.captured?.length || 0) + (data.inbox.stages.suggested?.length || 0) }) : null] }) }),
+              jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => { setView('board'); setDetail(null) }, 'aria-label': 'Show action board', children: 'Board' }),
+              jsx(Button, { variant: view === 'projects' ? 'secondary' : 'ghost', onClick: () => { setView('projects'); setDetail(null) }, 'aria-label': 'Show canonical projects', children: 'Projects' }),
+              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => { setView('inbox'); setDetail(null) }, 'aria-label': 'Show Office Inbox', children: 'Office Inbox' }),
               view === 'board' ? jsx(IconButton, { icon: 'add', label: 'Add next action', onClick: () => setAdding(value => !value) }) : null
             ] })
           ] }),
@@ -390,12 +527,14 @@ function Dashboard({ ctx }) {
           jsxs('main', {
             className: 'min-h-0 min-w-0 flex-1 overflow-auto p-3 md:p-4',
             children: [
-              view === 'board' && adding ? jsx(ActionForm, { onClose: () => setAdding(false), mutate }) : null,
+              view === 'board' && adding ? jsx(ActionForm, { onClose: () => setAdding(false), mutate, projects: data.projects.items || [] }) : null,
               view === 'board' ? jsx('div', {
                 className: adding ? 'mt-3 grid min-w-0 gap-3' : 'grid min-w-0 gap-3',
                 style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
                 children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate, activeId: detail?.task.id, onOpen: task => setDetail({ task, lane: item.id }) }, item.id))
-              }) : jsx(Inbox, { data: data.inbox, mutate })
+              }) : view === 'projects'
+                ? jsx(Projects, { data: data.projects, ctx })
+                : jsx(Inbox, { data: data.inbox, mutate, projects: data.projects.items || [] })
             ]
           }),
           detail ? jsx(TaskDetail, { task: detail.task, lane: detail.lane, docked: wide, onClose: () => setDetail(null) }) : null
