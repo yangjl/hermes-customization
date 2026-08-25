@@ -21,6 +21,57 @@ usage() {
   echo "Themes: hermes-focus (default), light-lab"
 }
 
+board_exists() {
+  # Capture the listing FIRST. As a pipeline this would run under `pipefail`,
+  # where a non-zero `hermes` exit masks python's status — an existing board
+  # would read as "absent" and fall through to the renaming create.
+  local listing
+  listing="$(hermes kanban boards list --json 2>/dev/null)" || return 2
+  printf '%s' "$listing" | python3 -c '
+import json, sys
+slug = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+except ValueError:
+    raise SystemExit(2)
+if not isinstance(rows, list):
+    raise SystemExit(2)
+found = False
+for row in rows:
+    if not isinstance(row, dict):
+        raise SystemExit(2)
+    if row.get("slug") == slug:
+        found = True
+raise SystemExit(0 if found else 1)
+' "$1"
+}
+
+# `hermes kanban boards create` is idempotent and rewrites board.json's display
+# name, so an unconditional create would silently rename an existing board.
+# List first; create only when the board is genuinely absent.
+ensure_board() {
+  local slug="$1"
+  local name="$2"
+  local status=0
+  board_exists "$slug" || status=$?
+  case "$status" in
+    0)
+      echo "Board $slug already exists; preserved its metadata."
+      return 0
+      ;;
+    1) ;;
+    *)
+      echo "Could not read the board list; refusing to touch board $slug." >&2
+      return 1
+      ;;
+  esac
+  if hermes kanban boards create "$slug" --name "$name"; then
+    return 0
+  fi
+  echo "Could not create required board $slug." >&2
+  return 1
+}
+
 apply_terminal_patch=false
 apply_desktop_patch=false
 install_desktop_app=false
@@ -111,6 +162,19 @@ echo "Installed Research web report to $web_report_target_dir"
 install -d "$script_target_dir"
 install -m 0755 "$repo_dir/scripts/refresh-todo-vault.py" \
   "$script_target_dir/refresh-todo-vault.py"
+legacy_runner="$script_target_dir/sync-todo-kanban.py"
+if [[ -e "$legacy_runner" ]]; then
+  # Only remove the artifact this installer itself once shipped, recognized by
+  # its own docstring. Anything else at that path is the user's file.
+  if [[ -f "$legacy_runner" ]] && grep -qF \
+    "Pull shared todo records into this machine's local Kanban board." \
+    "$legacy_runner"; then
+    rm -f "$legacy_runner"
+    echo "Removed the obsolete sync-todo-kanban.py runner."
+  else
+    echo "Preserved unrecognized file at $legacy_runner; remove it yourself if it is obsolete." >&2
+  fi
+fi
 install -m 0755 "$repo_dir/scripts/reapply-desktop-patch.sh" \
   "$script_target_dir/reapply-desktop-patch.sh"
 echo "Installed vault refresh script to $script_target_dir"
@@ -138,12 +202,10 @@ if command -v hermes >/dev/null 2>&1; then
       *[Dd]esktop*) board_name="Office Desktop" ;;
       *) board_name="MacBook" ;;
     esac
-    if ! hermes kanban boards create todos --name "$board_name" >/dev/null 2>&1; then
-      echo "Board todos already exists; preserved its metadata."
-    fi
+    ensure_board todos "$board_name"
     if [[ "$board_name" == "Office Desktop" ]] && \
-       ! hermes kanban boards create inbox --name Inbox >/dev/null 2>&1; then
-      echo "Board inbox already exists; preserved its metadata."
+       ! ensure_board inbox Inbox; then
+      exit 1
     fi
     echo "Activated Project Kanban for $board_name"
   else
