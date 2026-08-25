@@ -20,7 +20,7 @@ called done. Read it before adding a customization.
 - `web-report/index.html` — content-rich Research portfolio report.
 - `docs/hermes-focus-design.md` — audit, design rationale, and validation plan.
 - `plugins/` — backend (web-dashboard) plugins.
-- `scripts/refresh-todo-vault.py` — weekly refresh for the Obsidian project vault.
+- `scripts/refresh-todo-vault.py` — deterministic device-observation publisher for Project Kanban.
 - `scripts/reapply-desktop-patch.sh` — restores the Desktop patch after a Hermes update.
 - `hooks/telegram-idea-capture/` — turns a Telegram message into an inbox card.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
@@ -39,7 +39,7 @@ called done. Read it before adding a customization.
 ```
 
 This installs the dashboard themes, Light Lab skin, Research Desktop plugin,
-Research web report, and vault refresh script under
+Research web report, and project-observation script under
 `${HERMES_HOME:-$HOME/.hermes}/`. It activates `hermes-focus` for the browser
 dashboard and `vscode-light-lab` for Hermes Desktop, CLI, and TUI.
 
@@ -194,38 +194,71 @@ Project knowledge lives in a separate private Obsidian vault
 (`yangjl/todo-list`), cloned to `~/Documents/WikiHub/todo-list`. Notes and
 inventories stay out of this repository.
 
-`scripts/refresh-todo-vault.py` keeps that vault current. Each run reads
-repository metadata from the GitHub API for the tracked accounts, scans this
-machine's project folders, rewrites the inventory notes, then commits and pushes
-the vault. It never clones a repository.
+Project Kanban v2 has four explicit authorities:
 
-It raises a Kanban card when a repository whose note says
-`knowledge_status: active` has been pushed since the previous run. Reviewing a
-project is therefore what opts it into the board; unreviewed repositories stay
-silent however often they are pushed. An idempotency key holds this to one card
-per repository per calendar month, so a busy week cannot flood the board.
+```text
+Obsidian canonical project note = project status, goal, next action, blocker
+Native Hermes `todos` board    = local action workflow
+GitHub                         = development activity evidence
+Device observation snapshot   = latest local Git evidence
+Office Desktop `inbox` board  = capture and candidate review
+```
 
-Run it by hand:
+A managed project is an active note under `Projects/` with unique frontmatter:
+
+```yaml
+project_id: stable-kebab-case-id
+knowledge_status: active
+project_category: main-research # or student-projects / systems-admin
+github_repo: owner/repository   # optional
+```
+
+The note body uses `## Goal`, `## Next action`, and `## Blocker`. Obsidian is
+authoritative: GitHub pushes and local Git state never overwrite these fields.
+Notes without a valid `project_id` or any required heading are excluded with a
+validation warning; they are not projects or action targets in this UI.
+Heading matching is case-insensitive and tolerates any whitespace after `##`
+(extra spaces or a tab).
+A `project_id` claimed by more than one active note is ambiguous: **every**
+claimant is excluded and warned, so an ambiguous ID can never be linked to an
+action — even when only one of the claimants is otherwise valid.
+
+`scripts/refresh-todo-vault.py --publish-observations` scans configured local
+roots and writes one allowlisted JSON record to
+`Observations/devices/$TODO_MACHINE.json`. The snapshot contains only stable
+project IDs, normalized GitHub repositories, commit/activity timestamps, short
+checked-out HEAD IDs, and dirty/ahead/behind counts. It contains no local paths,
+usernames, tokens, task bodies, or transcripts. The script stages and commits
+only that one snapshot path, then pushes it. Before staging, it fetches and
+aborts with an actionable error if the vault is behind upstream; it never pulls,
+rebases, stashes, or merges unrelated vault work. Any local commits already
+ahead must be observation-only commits for that same device path. The publisher
+validates every pending and newly created snapshot blob against the exact
+allowlisted schema, then pushes the validated commit ID explicitly, so unsafe
+history or a concurrent local commit cannot ride along. It never creates project
+notes, Kanban cards, or per-device project folders.
+
+Run the observation publisher by hand:
 
 ```bash
 "${HERMES_HOME:-$HOME/.hermes}/hermes-agent/venv/bin/python" \
-  "${HERMES_HOME:-$HOME/.hermes}/scripts/refresh-todo-vault.py"
+"${HERMES_HOME:-$HOME/.hermes}/scripts/refresh-todo-vault.py" \
+--publish-observations
 ```
 
-Or schedule it weekly:
+The weekday job runs that command at 8:00 AM Monday through Friday. It is a
+deterministic no-agent job; no model summarizes or interprets the snapshot.
 
-```bash
-hermes cron create "0 15 * * 0" "Summarize the refresh output above." \
-  --script refresh-todo-vault.py --name "Weekly todo vault refresh"
-```
-
-Four environment variables change its behavior. `TODO_MACHINE` names the vault
-folder that receives this machine's local scans, so two machines never overwrite
-each other. `TODO_VAULT` points at a vault somewhere other than the default
-path. `TODO_BOARD` selects the Kanban board, and `TODO_CARDS=0` turns card
-creation off for a run. Reading private repositories needs a `GITHUB_TOKEN` in
-`.env` with metadata read access; the script also accepts `GITHUB_TOKEN_<NAME>`
-for several accounts.
+`TODO_MACHINE` names the observing device (for example,
+`TODO_MACHINE=MacLaptop-new`). `TODO_VAULT` changes the vault location, and
+`TODO_PROJECT_MAP` optionally maps a machine-local non-Git folder path to a
+canonical `project_id`. Reading private repository activity uses tokens from
+`.env` when present and otherwise reuses the authenticated `gh` CLI session.
+These values are machine-local and never stored in this repository.
+`TODO_MACHINE` is required and has no shared fallback filename. If a push loses
+a race, the scoped observation commit stays local: reconcile the vault with
+`git pull --rebase`, then rerun the publisher; an unchanged snapshot retries the
+pending push.
 
 ## Capturing ideas from Telegram
 
@@ -275,24 +308,51 @@ UI changes also need a visual check against the approved `sketches/` MVP; see
 
 ## Project Kanban pane
 
-An opt-in Desktop pane over the native Kanban boards, with a review Inbox.
+An opt-in, Board-first Desktop pane over native Kanban actions and canonical
+Obsidian projects. It has three views:
+
+- **Board** — the four native action lanes; human cards move locally.
+- **Projects** — one global, read-only project list with GitHub and “Last
+  observed on” evidence. Projects are never grouped by device.
+- **Office Inbox** — the real review queue only where the local `inbox` board
+  exists; other machines show the office-host boundary instead of copying it.
+
+New human actions select a canonical project. Their existing task-body metadata
+stores `project_id`, while category is derived from the project note. Existing
+unlinked v1 cards remain usable. Local lane moves, archives, and Inbox decisions
+are never written back to Git.
+
+Inbox accept and dismiss are scoped to exactly what the Inbox lists: one shared
+eligibility rule governs listing, accepting, and dismissing. A blocked task must
+carry the `review_candidate` metadata this plugin writes on capture, and a task
+claimed by a worker is never a candidate. A task that is not visible in the
+Inbox therefore cannot be mutated through it, and dismissing archives a card
+without ever clearing another worker's lock.
+
 Install it with the flag:
 
 ```bash
 ./install.sh --theme light-lab --enable-project-kanban
 ```
 
-That enables the backend half and creates this machine's board. The **Desktop**
+That enables the backend half and creates this machine's board **only when it
+does not already exist**. `hermes kanban boards create` is idempotent and
+rewrites a board's display name, so the installer lists boards first and leaves
+an existing `todos` or `inbox` board — and any name you gave it — untouched. If
+the board list cannot be read, or the CLI exits non-zero, the installer stops
+rather than risk a rename.
+The **Desktop**
 half ships disabled — plugins under `~/.hermes/plugins/` are inventoried but
 inert until allowlisted, and that toggle lives in the app's local storage, not
 `config.yaml`, so the installer cannot set it. Turn it on once per machine:
 
 **Settings → Plugins → Project Kanban**, then click **Kanban** in the sidebar.
 
-The board is named after the machine: `Office Desktop` or `MacBook`. The
-Inbox board is created only on the Office Desktop, so the Inbox tab elsewhere
-reads "Inbox unavailable" — boards are SQLite and gateway-local, and the pane
-deliberately does not sync another machine's board.
+The underlying action board may retain its machine-local display name, but the
+product hierarchy is always **Project Kanban**. Device names appear only as
+observation provenance. The Inbox board is created only on the Office Desktop;
+boards are SQLite and gateway-local, and the pane deliberately does not sync
+another machine's board.
 
 ## Set up another computer
 
@@ -305,7 +365,8 @@ To bring the todo workflow along as well:
 
 5. Create the board: `hermes kanban boards create todos --name "Todo Dashboard" --switch`.
 6. Clone the vault into `~/Documents/WikiHub/`.
-7. Set `TODO_MACHINE` to a name for this computer and schedule the weekly refresh.
+7. Set `TODO_MACHINE` to a name for this computer and schedule the weekday
+   observation publisher.
 8. Schedule the patch restore job so Hermes updates do not revert the Desktop
    customizations (see "Surviving a Hermes update").
 9. For the Kanban pane, rerun the installer with `--enable-project-kanban` and
