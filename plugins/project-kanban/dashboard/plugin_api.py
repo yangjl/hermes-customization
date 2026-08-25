@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -28,13 +30,12 @@ NATIVE_STATUS_LANES = {
     "blocked": "waiting",
     "review": "review",
 }
-ACTIVE_CANDIDATE_STATUSES = {"blocked", "triage", "todo", "ready"}
 
 
 class TaskCreate(BaseModel):
     title: str
     body: str = ""
-    category: Literal["main-research", "student-projects", "systems-admin"] = "systems-admin"
+    project_id: str
     lane: Literal["next", "doing", "waiting", "review"] = "next"
 
 
@@ -52,7 +53,7 @@ class InboxCapture(BaseModel):
 
 class InboxAccept(BaseModel):
     title: str
-    category: Literal["main-research", "student-projects", "systems-admin"]
+    project_id: str
 
 
 def _frontmatter(path: Path) -> dict[str, str]:
@@ -72,28 +73,237 @@ def _frontmatter(path: Path) -> dict[str, str]:
     return values
 
 
-def _project_counts() -> dict[str, Any]:
+def _heading_re(heading: str) -> re.Pattern[str]:
+    return re.compile(rf"^##\s+{re.escape(heading)}\s*$", re.IGNORECASE)
+
+
+# Any level-2 heading. The section terminator must recognise the same shapes as
+# _heading_re, or a heading it accepts (e.g. tab-separated) fails to end the
+# previous section and gets swallowed into it.
+_ANY_HEADING_RE = re.compile(r"^##\s+")
+
+
+def _section(text: str, heading: str) -> str:
+    # Must use the same matcher as _has_heading, or a note can pass the
+    # presence gate and still yield empty text (e.g. "##  Goal").
+    marker = _heading_re(heading)
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if not marker.match(line):
+            continue
+        body: list[str] = []
+        for value in lines[index + 1:]:
+            if _ANY_HEADING_RE.match(value):
+                break
+            body.append(value)
+        return "\n".join(body).strip()
+    return ""
+
+
+def _has_heading(text: str, heading: str) -> bool:
+    return any(_heading_re(heading).match(line) for line in text.splitlines())
+
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _timestamp(value: object) -> datetime.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
+def _is_stale(observed_at: str) -> bool:
+    observed = _timestamp(observed_at)
+    return observed is None or _now() - observed > datetime.timedelta(days=7)
+
+
+def _evidence_counts(raw: dict[str, Any]) -> tuple[int, int, int] | None:
+    try:
+        counts = (
+            int(raw.get("dirty_count") or 0),
+            int(raw.get("ahead") or 0),
+            int(raw.get("behind") or 0),
+        )
+    except (TypeError, ValueError):
+        return None
+    return counts if all(value >= 0 for value in counts) else None
+
+
+def _observations(vault: Path) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[str]]:
+    latest: dict[str, dict[str, Any]] = {}
+    unmatched: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    folder = vault / "Observations" / "devices"
+    if not folder.is_dir():
+        return latest, unmatched, warnings
+    for path in sorted(folder.glob("*.json")):
+        relative = path.relative_to(vault)
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, ValueError):
+            warnings.append(f"{relative}: malformed observation snapshot")
+            continue
+        if not isinstance(snapshot, dict) or snapshot.get("schema_version") != 1:
+            warnings.append(f"{relative}: unsupported observation snapshot")
+            continue
+        device = str(snapshot.get("device", ""))
+        observed_at = str(snapshot.get("observed_at", ""))
+        observed = _timestamp(observed_at)
+        if not device or observed is None:
+            warnings.append(f"{relative}: missing device or observed_at")
+            continue
+        raw_projects = snapshot.get("projects", [])
+        if not isinstance(raw_projects, list):
+            warnings.append(f"{relative}: projects must be a list")
+            raw_projects = []
+        for raw in raw_projects:
+            if not isinstance(raw, dict):
+                continue
+            project_id = str(raw.get("project_id", ""))
+            if not project_id:
+                continue
+            counts = _evidence_counts(raw)
+            if counts is None:
+                warnings.append(f"{relative}: invalid evidence counts")
+                continue
+            evidence = {
+                "device": device,
+                "observed_at": observed_at,
+                "activity_at": str(raw.get("activity_at", "")),
+                "head": str(raw.get("head", "")),
+                "dirty_count": counts[0],
+                "ahead": counts[1],
+                "behind": counts[2],
+                "github_repo": str(raw.get("github_repo", "")),
+                "github_pushed_at": str(raw.get("github_pushed_at", "")),
+                "stale": _is_stale(observed_at),
+            }
+            previous = latest.get(project_id)
+            if previous is None or observed > (_timestamp(previous["observed_at"]) or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)):
+                latest[project_id] = evidence
+        raw_unmatched = snapshot.get("unmatched", [])
+        if not isinstance(raw_unmatched, list):
+            warnings.append(f"{relative}: unmatched must be a list")
+            raw_unmatched = []
+        for raw in raw_unmatched:
+            if not isinstance(raw, dict) or not raw.get("source"):
+                continue
+            counts = _evidence_counts(raw)
+            if counts is None:
+                warnings.append(f"{relative}: invalid evidence counts")
+                continue
+            unmatched.append({
+                "source": str(raw["source"]),
+                "kind": str(raw.get("kind", "unknown")),
+                "device": device,
+                "observed_at": observed_at,
+                "activity_at": str(raw.get("activity_at", "")),
+                "dirty_count": counts[0],
+                "ahead": counts[1],
+                "behind": counts[2],
+                "stale": _is_stale(observed_at),
+            })
+    unmatched.sort(key=lambda row: (row["source"], row["device"], row["observed_at"]))
+    return latest, unmatched, warnings
+
+
+def _project_records() -> dict[str, Any]:
     vault = Path(os.environ.get("TODO_VAULT", "~/Documents/WikiHub/todo-list")).expanduser()
     counts = {category: 0 for category in CATEGORIES}
-    active: dict[str, str] = {}
+    items: list[dict[str, Any]] = []
+    warnings: list[str] = []
     projects = vault / "Projects"
     if projects.is_dir():
         notes = sorted(projects.rglob("*.md"), key=lambda path: (len(path.relative_to(projects).parts), str(path)))
+        # Pass 1: resolve identity before any other validation. Every active note
+        # with a syntactically valid project_id is a claimant, so an ID claimed
+        # by a valid note AND a malformed one is still ambiguous and must be
+        # excluded entirely rather than silently resolving to the valid note.
+        claims: dict[str, list[Path]] = {}
         for note in notes:
             metadata = _frontmatter(note)
             if metadata.get("knowledge_status", "").lower() != "active":
                 continue
-            project = metadata.get("project") or metadata.get("hermes_project") or note.stem
+            project_id = metadata.get("project_id", "")
+            if not project_id:
+                continue
+            if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", project_id):
+                warnings.append(f"{note.relative_to(vault)}: invalid project_id {project_id!r}")
+                continue
+            claims.setdefault(project_id, []).append(note)
+        ambiguous = {pid for pid, notes_ in claims.items() if len(notes_) > 1}
+        for project_id in sorted(ambiguous):
+            paths = ", ".join(str(note.relative_to(vault)) for note in claims[project_id])
+            warnings.append(f"duplicate project_id {project_id!r} claimed by {paths}; all claimants excluded")
+
+        # Pass 2: validate only unambiguous claims.
+        for project_id in sorted(set(claims) - ambiguous):
+            note = claims[project_id][0]
+            metadata = _frontmatter(note)
+            relative = note.relative_to(vault)
             category = metadata.get("project_category", "")
-            if project not in active or (active[project] not in counts and category in counts):
-                active[project] = category
-    for category in active.values():
-        if category in counts:
+            if category not in counts:
+                warnings.append(f"{relative}: invalid or missing project_category")
+                continue
+            try:
+                text = note.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                warnings.append(f"{relative}: unreadable project note")
+                continue
+            sections = {
+                "goal": _section(text, "Goal"),
+                "next_action": _section(text, "Next action"),
+                "blocker": _section(text, "Blocker"),
+            }
+            missing = [
+                heading for heading in ("Goal", "Next action", "Blocker")
+                if not _has_heading(text, heading)
+            ]
+            for heading in missing:
+                warnings.append(f"{relative}: missing {heading} heading")
+            if missing:
+                continue
+            title = next(
+                (line[2:].strip() for line in text.splitlines() if line.startswith("# ")),
+                note.stem,
+            )
             counts[category] += 1
+            items.append({
+                "project_id": project_id,
+                "title": title,
+                "status": "active",
+                "category": category,
+                **sections,
+                "github_repo": metadata.get("github_repo", ""),
+                "updated": metadata.get("updated", ""),
+                "note": str(relative),
+                "note_path": str(note),
+            })
+    items.sort(key=lambda item: item["project_id"])
+    observations, unmatched, observation_warnings = _observations(vault)
+    warnings.extend(observation_warnings)
+    for item in items:
+        observation = observations.get(item["project_id"])
+        item["github"] = {
+            "repo": item["github_repo"],
+            "pushed_at": observation["github_pushed_at"] if observation else "",
+        }
+        item["observation"] = observation
     return {
-        "total_active": len(active),
+        "total_active": len(items),
         "categories": counts,
-        "needs_category": sum(category not in counts for category in active.values()),
+        "needs_category": 0,
+        "items": items,
+        "warnings": warnings,
+        "unmatched": unmatched,
     }
 
 
@@ -118,10 +328,18 @@ def _metadata(body: str | None) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _human_task_body(details: str, lane: str, *, accepted_from: str | None = None) -> str:
+def _human_task_body(
+    details: str,
+    lane: str,
+    *,
+    accepted_from: str | None = None,
+    project_id: str | None = None,
+) -> str:
     project_kanban: dict[str, Any] = {"human_managed": True, "lane": lane}
     if accepted_from:
         project_kanban["accepted_from"] = accepted_from
+    if project_id:
+        project_kanban["project_id"] = project_id
     return json.dumps({"details": details, "project_kanban": project_kanban})
 
 
@@ -157,7 +375,7 @@ def _links(details: str) -> dict[str, str]:
     return links
 
 
-def _task_view(task: kb.Task) -> dict[str, Any]:
+def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     source = "manual"
     reason = ""
     body = task.body or ""
@@ -171,9 +389,11 @@ def _task_view(task: kb.Task) -> dict[str, Any]:
         body = str(metadata.get("details", ""))
         human_managed = workflow.get("human_managed") is True
         workflow_lane = str(workflow.get("lane", ""))
+        project_id = str(workflow.get("project_id", ""))
     else:
         human_managed = False
         workflow_lane = ""
+        project_id = ""
     if workflow_lane not in LANE_IDS:
         workflow_lane = ""
     suggested_category, suggestion_reason = _suggestion(task.title, body)
@@ -183,7 +403,7 @@ def _task_view(task: kb.Task) -> dict[str, Any]:
         "body": body,
         "status": task.status,
         "priority": task.priority,
-        "category": task.tenant if task.tenant in CATEGORIES else "systems-admin",
+        "category": task.tenant if task.tenant in {*CATEGORIES, "unsorted"} else "unsorted",
         "assignee": task.assignee,
         "created_at": task.created_at,
         "source": source,
@@ -193,11 +413,16 @@ def _task_view(task: kb.Task) -> dict[str, Any]:
         "suggestion_reason": suggestion_reason,
         "human_managed": human_managed,
         "workflow_lane": workflow_lane or None,
+        "project_id": project_id or None,
+        "project": (projects or {}).get(project_id),
         "links": _links(body),
     }
 
 
-def _board_lanes(board: str) -> dict[str, list[dict[str, Any]]]:
+def _board_lanes(
+    board: str,
+    projects: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     if not kb.board_exists(board):
         raise HTTPException(status_code=404, detail=f"Board {board!r} is unavailable")
     conn = kb.connect(board=board)
@@ -207,7 +432,7 @@ def _board_lanes(board: str) -> dict[str, list[dict[str, Any]]]:
         conn.close()
     lanes: dict[str, list[dict[str, Any]]] = {lane: [] for lane in LANE_IDS}
     for task in tasks:
-        view = _task_view(task)
+        view = _task_view(task, projects)
         lane = view["workflow_lane"] if view["human_managed"] else NATIVE_STATUS_LANES.get(task.status)
         if lane in lanes:
             lanes[lane].append(view)
@@ -285,6 +510,29 @@ def _inbox_unavailable(detail: str) -> dict[str, Any]:
     }
 
 
+def _candidate_stage(task: kb.Task) -> str | None:
+    """The Inbox review stage a task belongs to, or None if it is not a candidate.
+
+    This is the ONE eligibility predicate shared by listing, accepting, and
+    dismissing, so a task that is not visible in the Inbox can never be mutated
+    through it. A blocked task must carry the `review_candidate` metadata this
+    plugin writes on capture; native worker-lifecycle tasks are not candidates,
+    and a claimed task belongs to its worker.
+    """
+    if task.claim_lock or task.worker_pid:
+        return None
+    if task.status == "triage":
+        return "captured"
+    if task.status == "blocked":
+        metadata = _metadata(task.body)
+        if metadata.get("review_candidate") is True:
+            return "captured"
+        return None
+    if task.status in {"todo", "ready"}:
+        return "suggested"
+    return None
+
+
 def _inbox_snapshot() -> dict[str, Any]:
     try:
         if not kb.board_exists(INBOX_BOARD):
@@ -292,19 +540,15 @@ def _inbox_snapshot() -> dict[str, Any]:
         tasks = _read_inbox_tasks()
     except Exception as exc:
         return _inbox_unavailable(type(exc).__name__)
-    stages = {
-        "captured": [
-            _task_view(task)
-            for task in tasks
-            if task.status == "triage"
-            or (
-                task.status == "blocked"
-                and _metadata(task.body).get("review_candidate") is True
-            )
-        ],
-        "suggested": [_task_view(task) for task in tasks if task.status in {"todo", "ready"}],
+    stages: dict[str, list[dict[str, Any]]] = {
+        "captured": [],
+        "suggested": [],
         "accepted": [_task_view(task) for task in tasks if task.status == "done"],
     }
+    for task in tasks:
+        stage = _candidate_stage(task)
+        if stage is not None:
+            stages[stage].append(_task_view(task))
     return {"available": True, "stages": stages}
 
 
@@ -320,10 +564,12 @@ def _require_local_board(board: str) -> str:
 def snapshot(board: str = LOCAL_BOARD) -> dict[str, Any]:
     board = _require_local_board(board)
     metadata = kb.read_board_metadata(board)
+    projects = _project_records()
+    project_lookup = {item["project_id"]: item for item in projects["items"]}
     return {
         "machine": {"board": metadata["slug"], "name": metadata["name"]},
-        "projects": _project_counts(),
-        "lanes": _board_lanes(board),
+        "projects": projects,
+        "lanes": _board_lanes(board, project_lookup),
         "inbox": _inbox_snapshot(),
     }
 
@@ -334,13 +580,21 @@ def create_task(payload: TaskCreate, board: str = LOCAL_BOARD) -> dict[str, Any]
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
+    project_lookup = {
+        item["project_id"]: item for item in _project_records()["items"]
+    }
+    project_id = payload.project_id.strip()
+    project = project_lookup.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=422, detail="Canonical project is unavailable")
+    category = project["category"]
     conn = kb.connect(board=board)
     try:
         task_id = kb.create_task(
             conn,
             title=title,
-            body=_human_task_body(payload.body.strip(), payload.lane),
-            tenant=payload.category,
+            body=_human_task_body(payload.body.strip(), payload.lane, project_id=project_id),
+            tenant=category,
             created_by="project-kanban",
             initial_status="blocked",
             board=board,
@@ -349,7 +603,7 @@ def create_task(payload: TaskCreate, board: str = LOCAL_BOARD) -> dict[str, Any]
         task = kb.get_task(conn, task_id)
         if task is None:
             raise HTTPException(status_code=500, detail="Task creation failed")
-        return _task_view(task)
+        return _task_view(task, project_lookup)
     finally:
         conn.close()
 
@@ -357,9 +611,12 @@ def create_task(payload: TaskCreate, board: str = LOCAL_BOARD) -> dict[str, Any]
 @router.patch("/tasks/{task_id}")
 def move_task(task_id: str, payload: TaskMove, board: str = LOCAL_BOARD) -> dict[str, Any]:
     board = _require_local_board(board)
+    project_lookup = {
+        item["project_id"]: item for item in _project_records()["items"]
+    }
     conn = kb.connect(board=board)
     try:
-        return _task_view(_move_human_lane(conn, task_id, payload.lane))
+        return _task_view(_move_human_lane(conn, task_id, payload.lane), project_lookup)
     finally:
         conn.close()
 
@@ -370,7 +627,7 @@ def capture_inbox(payload: InboxCapture) -> dict[str, Any]:
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
     if not kb.board_exists(INBOX_BOARD):
-        kb.create_board(INBOX_BOARD, name="Inbox")
+        raise HTTPException(status_code=404, detail="Inbox is unavailable")
     conn = kb.connect(board=INBOX_BOARD)
     try:
         task_id = kb.create_task(
@@ -402,6 +659,13 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
     title = payload.title.strip()
     if not title:
         raise HTTPException(status_code=422, detail="Title is required")
+    project_lookup = {
+        item["project_id"]: item for item in _project_records()["items"]
+    }
+    project_id = payload.project_id.strip()
+    project = project_lookup.get(project_id)
+    if project is None:
+        raise HTTPException(status_code=422, detail="Canonical project is unavailable")
     if not kb.board_exists(INBOX_BOARD):
         raise HTTPException(status_code=404, detail="Inbox is unavailable")
     inbox_conn = kb.connect(board=INBOX_BOARD)
@@ -409,7 +673,7 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
     try:
         with kb.write_txn(inbox_conn):
             candidate = kb.get_task(inbox_conn, task_id)
-            if candidate is None or candidate.status not in ACTIVE_CANDIDATE_STATUSES:
+            if candidate is None or _candidate_stage(candidate) is None:
                 raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
             action_id = kb.create_task(
                 target_conn,
@@ -418,8 +682,9 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
                     f"Accepted from Inbox candidate {task_id}.",
                     "next",
                     accepted_from=task_id,
+                    project_id=project_id,
                 ),
-                tenant=payload.category,
+                tenant=project["category"],
                 created_by="project-kanban",
                 initial_status="blocked",
                 idempotency_key=f"project-kanban:accept:{task_id}:{board}",
@@ -433,7 +698,8 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
             result = f"accepted:{board}:{action_id}"
             updated = inbox_conn.execute(
                 "UPDATE tasks SET status = 'done', completed_at = ?, result = ?, "
-                "idempotency_key = NULL WHERE id = ? AND status = ?",
+                "idempotency_key = NULL WHERE id = ? AND status = ? "
+                "AND claim_lock IS NULL AND worker_pid IS NULL",
                 (now, result, task_id, candidate.status),
             )
             if updated.rowcount != 1:
@@ -445,7 +711,7 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
         accepted = kb.get_task(inbox_conn, task_id)
         if accepted is None:
             raise HTTPException(status_code=500, detail="Inbox update failed")
-        return {"task": _task_view(action), "candidate": _task_view(accepted)}
+        return {"task": _task_view(action, project_lookup), "candidate": _task_view(accepted)}
     finally:
         target_conn.close()
         inbox_conn.close()
@@ -459,12 +725,16 @@ def dismiss_inbox(task_id: str) -> dict[str, bool]:
     try:
         now = int(time.time())
         with kb.write_txn(conn):
-            placeholders = ",".join("?" for _ in ACTIVE_CANDIDATE_STATUSES)
+            candidate = kb.get_task(conn, task_id)
+            if candidate is None or _candidate_stage(candidate) is None:
+                raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
+            # Archive only; never clear a worker's claim. The lock columns are
+            # re-checked here so a worker that claimed the task between the read
+            # and this write loses the race instead of the lock.
             updated = conn.execute(
-                f"UPDATE tasks SET status = 'archived', claim_lock = NULL, "
-                f"claim_expires = NULL, worker_pid = NULL WHERE id = ? "
-                f"AND status IN ({placeholders})",
-                (task_id, *sorted(ACTIVE_CANDIDATE_STATUSES)),
+                "UPDATE tasks SET status = 'archived' WHERE id = ? AND status = ? "
+                "AND claim_lock IS NULL AND worker_pid IS NULL",
+                (task_id, candidate.status),
             )
             if updated.rowcount != 1:
                 raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")

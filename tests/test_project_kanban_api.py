@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib.util
+import datetime
+import json
 import os
 import sys
 import tempfile
@@ -47,6 +49,8 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         kb.create_board("todos", name="Office Desktop")
         kb.init_db(board="todos")
+        kb.create_board("inbox", name="Inbox")
+        kb.init_db(board="inbox")
         conn = kb.connect(board="todos")
         try:
             ready_id = kb.create_task(
@@ -70,25 +74,33 @@ class ProjectKanbanApiTest(unittest.TestCase):
             conn.close()
 
         (self.vault / "Projects" / "research.md").write_text(
-            "---\nproject: research\nknowledge_status: active\nproject_category: main-research\n---\n# Research\n",
+            "---\nproject_id: research\nknowledge_status: active\n"
+            "project_category: main-research\ngithub_repo: jyanglab/research\n---\n"
+            "# Research\n\n## Goal\nShip the study.\n\n"
+            "## Next action\nReview GWAS figures.\n\n## Blocker\nNone.\n",
             encoding="utf-8",
         )
         (self.vault / "Projects" / "student.md").write_text(
-            "---\nproject: student\nknowledge_status: active\nproject_category: student-projects\n---\n# Student\n",
+            "---\nproject_id: student\nknowledge_status: active\n"
+            "project_category: student-projects\n---\n# Student\n\n"
+            "## Goal\nComplete the thesis.\n\n## Next action\nReview chapter.\n\n"
+            "## Blocker\nNone.\n",
             encoding="utf-8",
         )
         (self.vault / "Projects" / "uncategorized.md").write_text(
-            "---\nproject: uncategorized\nknowledge_status: active\n---\n# Needs category\n",
+            "---\nproject_id: uncategorized\nknowledge_status: active\n---\n"
+            "# Needs category\n\n## Goal\nFix metadata.\n\n## Next action\nChoose category.\n",
             encoding="utf-8",
         )
         (self.vault / "Projects" / "paused.md").write_text(
             "---\nknowledge_status: paused\nproject_category: systems-admin\n---\n# Paused\n",
             encoding="utf-8",
         )
-        duplicate = self.vault / "Projects" / "Generated" / "research.md"
+        duplicate = self.vault / "Projects" / "Generated" / "device-copy.md"
         duplicate.parent.mkdir()
         duplicate.write_text(
-            "---\nproject: research\nknowledge_status: active\n---\n# Generated research record\n",
+            "---\nproject: device-copy\nknowledge_status: active\n"
+            "machine: MacLaptop-new\n---\n# Generated device record\n",
             encoding="utf-8",
         )
 
@@ -103,31 +115,335 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.env.stop()
         self.temp.cleanup()
 
-    def test_snapshot_maps_native_board_and_obsidian_counts(self):
+    def test_snapshot_maps_native_board_and_canonical_obsidian_projects(self):
         response = self.client.get("/api/plugins/project-kanban/snapshot")
 
         self.assertEqual(response.status_code, 200, response.text)
         data = response.json()
         self.assertEqual(data["machine"], {"board": "todos", "name": "Office Desktop"})
-        self.assertEqual(
-            data["projects"],
-            {
-                "total_active": 3,
-                "categories": {
-                    "main-research": 1,
-                    "student-projects": 1,
-                    "systems-admin": 0,
-                },
-                "needs_category": 1,
-            },
-        )
+        self.assertEqual(data["projects"]["total_active"], 2)
+        self.assertEqual(data["projects"]["categories"], {
+            "main-research": 1,
+            "student-projects": 1,
+            "systems-admin": 0,
+        })
+        self.assertEqual([item["project_id"] for item in data["projects"]["items"]], ["research", "student"])
+        research = data["projects"]["items"][0]
+        self.assertEqual(research["goal"], "Ship the study.")
+        self.assertEqual(research["next_action"], "Review GWAS figures.")
+        self.assertEqual(research["blocker"], "None.")
+        self.assertEqual(research["github_repo"], "jyanglab/research")
+        self.assertEqual(research["note"], "Projects/research.md")
+        self.assertTrue(any("uncategorized.md" in warning for warning in data["projects"]["warnings"]))
+        self.assertFalse(any("device-copy" in item["project_id"] for item in data["projects"]["items"]))
         self.assertEqual([task["title"] for task in data["lanes"]["next"]], ["Review GWAS figures"])
         self.assertEqual([task["title"] for task in data["lanes"]["waiting"]], ["Wait for sequencing quote"])
         self.assertEqual(data["lanes"]["doing"], [])
         self.assertEqual(data["lanes"]["review"], [])
-        self.assertFalse(data["inbox"]["available"])
-        self.assertEqual(data["inbox"]["stages"], {})
-        self.assertIn("gateway-local", data["inbox"]["reason"])
+        self.assertTrue(data["inbox"]["available"])
+        self.assertEqual(data["inbox"]["stages"], {
+            "captured": [],
+            "suggested": [],
+            "accepted": [],
+        })
+
+    def test_snapshot_preserves_unsorted_task_category(self):
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Review uncategorized vault project",
+                tenant="unsorted",
+                created_by="vault-hydrate",
+                board="todos",
+            )
+            with kb.write_txn(conn):
+                conn.execute("UPDATE tasks SET status = 'ready' WHERE id = ?", (task_id,))
+        finally:
+            conn.close()
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        task = next(item for item in snapshot["lanes"]["next"] if item["id"] == task_id)
+
+        self.assertEqual(task["category"], "unsorted")
+
+    def test_malformed_canonical_note_is_warned_excluded_and_not_actionable(self):
+        (self.vault / "Projects" / "malformed.md").write_text(
+            "---\nproject_id: malformed\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Malformed\n\n"
+            "## Goal\nTest.\n\n## Next action\nReview.\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Must not attach", "project_id": "malformed"},
+        )
+
+        self.assertNotIn("malformed", [item["project_id"] for item in projects["items"]])
+        self.assertTrue(any("malformed.md: missing Blocker heading" in warning for warning in projects["warnings"]))
+        self.assertEqual(created.status_code, 422, created.text)
+
+    def test_duplicate_and_invalid_project_ids_are_excluded_with_warnings(self):
+        for name, project_id in (("duplicate.md", "research"), ("invalid.md", "Bad ID")):
+            (self.vault / "Projects" / name).write_text(
+                "---\n"
+                f"project_id: {project_id}\n"
+                "knowledge_status: active\nproject_category: systems-admin\n---\n"
+                f"# {name}\n\n## Goal\nTest.\n\n## Next action\nReview.\n\n"
+                "## Blocker\nNone.\n",
+                encoding="utf-8",
+            )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        self.assertNotIn("research", [item["project_id"] for item in projects["items"]])
+        self.assertNotIn("Bad ID", [item["project_id"] for item in projects["items"]])
+        self.assertTrue(any("duplicate project_id" in warning for warning in projects["warnings"]))
+        self.assertTrue(any("invalid project_id" in warning for warning in projects["warnings"]))
+
+    def test_duplicate_id_is_excluded_even_when_one_claimant_is_malformed(self):
+        """Ambiguity must be resolved before category/heading validation.
+
+        A malformed duplicate previously failed validation first, so the valid
+        note survived and the ambiguous ID stayed actionable.
+        """
+        (self.vault / "Projects" / "malformed-duplicate.md").write_text(
+            "---\nproject_id: research\nknowledge_status: active\n"
+            "project_category: not-a-category\n---\n"
+            "# Malformed duplicate\n\nNo headings here.\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        self.assertNotIn("research", [item["project_id"] for item in projects["items"]])
+        self.assertTrue(
+            any("duplicate project_id" in warning for warning in projects["warnings"]),
+            projects["warnings"],
+        )
+
+    def test_ambiguous_project_id_cannot_be_used_to_create_an_action(self):
+        (self.vault / "Projects" / "malformed-duplicate.md").write_text(
+            "---\nproject_id: research\nknowledge_status: active\n"
+            "project_category: not-a-category\n---\n"
+            "# Malformed duplicate\n\nNo headings here.\n",
+            encoding="utf-8",
+        )
+
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Ambiguous", "project_id": "research", "lane": "next"},
+        )
+
+        self.assertEqual(created.status_code, 422, created.text)
+
+    def test_duplicate_headings_missing_on_both_claimants_still_excludes_the_id(self):
+        (self.vault / "Projects" / "twin-a.md").write_text(
+            "---\nproject_id: twin\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Twin A\n",
+            encoding="utf-8",
+        )
+        (self.vault / "Projects" / "twin-b.md").write_text(
+            "---\nproject_id: twin\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Twin B\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        self.assertNotIn("twin", [item["project_id"] for item in projects["items"]])
+        self.assertTrue(
+            any("duplicate project_id" in warning for warning in projects["warnings"]),
+            projects["warnings"],
+        )
+
+    def test_heading_presence_and_extraction_agree_on_spacing(self):
+        """A note whose heading passes the presence gate must also yield its text."""
+        (self.vault / "Projects" / "spaced.md").write_text(
+            "---\nproject_id: spaced\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Spaced\n\n"
+            "##  Goal\nShip it.\n\n##  Next action\nDo the thing.\n\n"
+            "##  Blocker\nNone.\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+        item = next(
+            (i for i in projects["items"] if i["project_id"] == "spaced"), None
+        )
+
+        self.assertIsNotNone(item, projects["warnings"])
+        self.assertEqual(item["goal"], "Ship it.")
+        self.assertEqual(item["next_action"], "Do the thing.")
+        self.assertEqual(item["blocker"], "None.")
+
+    def test_tab_separated_headings_do_not_swallow_following_sections(self):
+        """The section terminator must match the same headings as the start."""
+        (self.vault / "Projects" / "tabbed.md").write_text(
+            "---\nproject_id: tabbed\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Tabbed\n\n"
+            "##\tGoal\nShip it.\n\n##\tNext action\nDo the thing.\n\n"
+            "##\tBlocker\nNone.\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+        item = next(
+            (i for i in projects["items"] if i["project_id"] == "tabbed"), None
+        )
+
+        self.assertIsNotNone(item, projects["warnings"])
+        self.assertEqual(item["goal"], "Ship it.")
+        self.assertEqual(item["next_action"], "Do the thing.")
+        self.assertEqual(item["blocker"], "None.")
+
+    def test_snapshot_joins_newest_device_observation_without_overwriting_project_truth(self):
+        observations = self.vault / "Observations" / "devices"
+        observations.mkdir(parents=True)
+        (observations / "old.json").write_text(json.dumps({
+            "schema_version": 1,
+            "device": "Office Desktop",
+            "observed_at": "2026-08-10T08:00:00-05:00",
+            "projects": [{
+                "project_id": "research",
+                "github_repo": "jyanglab/research",
+                "github_pushed_at": "2026-08-10T11:00:00Z",
+                "activity_at": "2026-08-10T10:00:00Z",
+                "head": "old",
+                "dirty_count": 0,
+                "ahead": 0,
+                "behind": 0,
+            }],
+            "unmatched": [],
+        }), encoding="utf-8")
+        (observations / "new.json").write_text(json.dumps({
+            "schema_version": 1,
+            "device": "MacLaptop-new",
+            "observed_at": "2026-08-24T08:00:00-05:00",
+            "projects": [{
+                "project_id": "research",
+                "github_repo": "jyanglab/research",
+                "github_pushed_at": "2026-08-23T23:00:00Z",
+                "activity_at": "2026-08-23T22:00:00Z",
+                "head": "new",
+                "dirty_count": 3,
+                "ahead": 1,
+                "behind": 0,
+                "status": "blocked",
+                "next_action": "Must not overwrite Obsidian",
+            }],
+            "unmatched": [{"source": "example/unmanaged", "kind": "github"}],
+        }), encoding="utf-8")
+        (observations / "broken.json").write_text("{broken", encoding="utf-8")
+
+        with patch.object(
+            self.module,
+            "_now",
+            return_value=datetime.datetime(2026, 8, 24, 14, 0, tzinfo=datetime.timezone.utc),
+        ):
+            projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        research = next(item for item in projects["items"] if item["project_id"] == "research")
+        self.assertEqual(research["status"], "active")
+        self.assertEqual(research["next_action"], "Review GWAS figures.")
+        self.assertEqual(research["github"], {
+            "repo": "jyanglab/research",
+            "pushed_at": "2026-08-23T23:00:00Z",
+        })
+        self.assertEqual(research["observation"]["device"], "MacLaptop-new")
+        self.assertEqual(research["observation"]["observed_at"], "2026-08-24T08:00:00-05:00")
+        self.assertEqual(research["observation"]["activity_at"], "2026-08-23T22:00:00Z")
+        self.assertEqual(research["observation"]["dirty_count"], 3)
+        self.assertEqual(research["observation"]["ahead"], 1)
+        self.assertFalse(research["observation"]["stale"])
+        self.assertEqual(projects["unmatched"][0]["source"], "example/unmanaged")
+        self.assertEqual(projects["unmatched"][0]["device"], "MacLaptop-new")
+        self.assertTrue(any("broken.json" in warning for warning in projects["warnings"]))
+
+    def test_malformed_observation_counts_warn_instead_of_breaking_snapshot(self):
+        observations = self.vault / "Observations" / "devices"
+        observations.mkdir(parents=True)
+        (observations / "bad-count.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "device": "MacLaptop-new",
+                "observed_at": "2026-08-24T12:00:00Z",
+                "projects": [{
+                    "project_id": "research",
+                    "dirty_count": "many",
+                    "ahead": 0,
+                    "behind": 0,
+                }],
+                "unmatched": [],
+            }),
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/plugins/project-kanban/snapshot")
+
+        self.assertEqual(response.status_code, 200)
+        projects = response.json()["projects"]
+        research = next(item for item in projects["items"] if item["project_id"] == "research")
+        self.assertIsNone(research["observation"])
+        self.assertTrue(any("invalid evidence counts" in warning for warning in projects["warnings"]))
+
+    def test_non_list_observation_collections_warn_instead_of_breaking_snapshot(self):
+        observations = self.vault / "Observations" / "devices"
+        observations.mkdir(parents=True)
+        (observations / "bad-shape.json").write_text(
+            json.dumps({
+                "schema_version": 1,
+                "device": "MacLaptop-new",
+                "observed_at": "2026-08-24T12:00:00Z",
+                "projects": None,
+                "unmatched": 42,
+            }),
+            encoding="utf-8",
+        )
+
+        response = self.client.get("/api/plugins/project-kanban/snapshot")
+
+        self.assertEqual(response.status_code, 200)
+        projects = response.json()["projects"]
+        self.assertEqual(projects["total_active"], 2)
+        self.assertTrue(any("projects must be a list" in warning for warning in projects["warnings"]))
+        self.assertTrue(any("unmatched must be a list" in warning for warning in projects["warnings"]))
+
+    def test_missing_canonical_headings_are_reported_individually(self):
+        (self.vault / "Projects" / "missing-headings.md").write_text(
+            "---\nproject_id: missing-headings\nknowledge_status: active\n"
+            "project_category: systems-admin\n---\n# Missing headings\n",
+            encoding="utf-8",
+        )
+
+        projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        warnings = "\n".join(projects["warnings"])
+        for heading in ("Goal", "Next action", "Blocker"):
+            self.assertIn(f"missing-headings.md: missing {heading} heading", warnings)
+
+    def test_observation_is_stale_after_seven_days(self):
+        observations = self.vault / "Observations" / "devices"
+        observations.mkdir(parents=True)
+        (observations / "old.json").write_text(json.dumps({
+            "schema_version": 1,
+            "device": "Office Desktop",
+            "observed_at": "2026-08-16T08:00:00-05:00",
+            "projects": [{"project_id": "student"}],
+            "unmatched": [],
+        }), encoding="utf-8")
+
+        with patch.object(
+            self.module,
+            "_now",
+            return_value=datetime.datetime(2026, 8, 24, 14, 0, tzinfo=datetime.timezone.utc),
+        ):
+            projects = self.client.get("/api/plugins/project-kanban/snapshot").json()["projects"]
+
+        student = next(item for item in projects["items"] if item["project_id"] == "student")
+        self.assertTrue(student["observation"]["stale"])
 
     def test_task_view_exposes_obsidian_and_github_links_from_details(self):
         details = "\n".join([
@@ -157,7 +473,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             "/api/plugins/project-kanban/tasks",
             json={
                 "title": "Draft maize grant aims",
-                "category": "main-research",
+                "project_id": "research",
                 "lane": "next",
             },
         )
@@ -179,6 +495,38 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
         self.assertIn(task["id"], [item["id"] for item in snapshot["lanes"]["doing"]])
+
+        unlinked = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Do not create an unlinked action"},
+        )
+        self.assertEqual(unlinked.status_code, 422)
+
+    def test_create_task_links_canonical_project_and_derives_its_category(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={
+                "title": "Approve validation cohort",
+                "project_id": "research",
+                "category": "student-projects",
+                "lane": "next",
+            },
+        )
+
+        self.assertEqual(created.status_code, 201, created.text)
+        task = created.json()
+        self.assertEqual(task["project_id"], "research")
+        self.assertEqual(task["category"], "main-research")
+        self.assertEqual(task["project"]["title"], "Research")
+        self.assertEqual(task["project"]["goal"], "Ship the study.")
+        self.assertEqual(task["project"]["next_action"], "Review GWAS figures.")
+        self.assertEqual(task["project"]["github"]["repo"], "jyanglab/research")
+
+        unknown = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Do not create", "project_id": "missing-project"},
+        )
+        self.assertEqual(unknown.status_code, 422)
 
     def test_inbox_capture_is_reviewable_before_acceptance(self):
         captured = self.client.post(
@@ -213,13 +561,15 @@ class ProjectKanbanApiTest(unittest.TestCase):
             f"/api/plugins/project-kanban/inbox/{candidate['id']}/accept",
             json={
                 "title": "Review Maya's draft and reply",
-                "category": "student-projects",
+                "project_id": "student",
             },
         )
         self.assertEqual(accepted.status_code, 200, accepted.text)
         action = accepted.json()["task"]
         self.assertEqual(action["title"], "Review Maya's draft and reply")
         self.assertEqual(action["category"], "student-projects")
+        self.assertEqual(action["project_id"], "student")
+        self.assertEqual(action["project"]["title"], "Student")
         self.assertEqual(action["status"], "blocked")
 
         snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
@@ -237,6 +587,18 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
         self.assertEqual(repeated.status_code, 201, repeated.text)
         self.assertNotEqual(repeated.json()["id"], candidate["id"])
+
+    def test_inbox_capture_does_not_create_office_authority(self):
+        with patch.object(self.module.kb, "board_exists", return_value=False), patch.object(
+            self.module.kb, "create_board"
+        ) as create_board:
+            response = self.client.post(
+                "/api/plugins/project-kanban/inbox/capture",
+                json={"title": "Must stay on the office host", "source": "manual"},
+            )
+
+        self.assertEqual(response.status_code, 404, response.text)
+        create_board.assert_not_called()
 
     def test_dismiss_archives_inbox_candidate(self):
         candidate = self.client.post(
@@ -261,7 +623,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(
             self.client.post(
                 "/api/plugins/project-kanban/tasks?board=private",
-                json={"title": "Do not write here", "category": "systems-admin"},
+                json={"title": "Do not write here", "project_id": "research"},
             ).status_code,
             403,
         )
@@ -297,7 +659,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             conn.close()
         child = self.client.post(
             "/api/plugins/project-kanban/tasks",
-            json={"title": "Child", "category": "main-research"},
+            json={"title": "Child", "project_id": "research"},
         ).json()
         conn = kb.connect(board="todos")
         try:
@@ -330,7 +692,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         accepted = self.client.post(
             f"/api/plugins/project-kanban/inbox/{candidate['id']}/accept",
-            json={"title": "Must not exist", "category": "systems-admin"},
+            json={"title": "Must not exist", "project_id": "research"},
         )
         self.assertIn(accepted.status_code, {404, 409})
         snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
@@ -359,7 +721,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
                 accepting = pool.submit(
                     self.client.post,
                     f"/api/plugins/project-kanban/inbox/{candidate['id']}/accept",
-                    json={"title": "Accepted once", "category": "systems-admin"},
+                    json={"title": "Accepted once", "project_id": "research"},
                 )
                 self.assertTrue(target_started.wait(timeout=5))
                 dismissing = pool.submit(
@@ -397,6 +759,170 @@ class ProjectKanbanApiTest(unittest.TestCase):
         stages = self.client.get("/api/plugins/project-kanban/snapshot").json()["inbox"]["stages"]
         self.assertIn(captured["id"], [task["id"] for task in stages["captured"]])
         self.assertIn(suggested_id, [task["id"] for task in stages["suggested"]])
+
+    def _hidden_blocked_inbox_task(self, *, locked: bool = False) -> str:
+        """A blocked Inbox task that is NOT a review candidate, so it is never listed."""
+        conn = kb.connect(board="inbox")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Native worker task",
+                body=json.dumps({"details": "internal"}),
+                board="inbox",
+            )
+            with kb.write_txn(conn):
+                if locked:
+                    conn.execute(
+                        "UPDATE tasks SET status = 'blocked', claim_lock = 'worker-1', "
+                        "worker_pid = 4242 WHERE id = ?",
+                        (task_id,),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE tasks SET status = 'blocked' WHERE id = ?", (task_id,)
+                    )
+        finally:
+            conn.close()
+        return task_id
+
+    def test_hidden_blocked_task_is_not_listed_as_a_candidate(self):
+        task_id = self._hidden_blocked_inbox_task()
+
+        stages = self.client.get("/api/plugins/project-kanban/snapshot").json()["inbox"]["stages"]
+
+        listed = {task["id"] for stage in stages.values() for task in stage}
+        self.assertNotIn(task_id, listed)
+
+    def test_hidden_blocked_task_cannot_be_accepted(self):
+        task_id = self._hidden_blocked_inbox_task()
+
+        response = self.client.post(
+            f"/api/plugins/project-kanban/inbox/{task_id}/accept",
+            json={"title": "Sneaky", "project_id": "research"},
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+        conn = kb.connect(board="inbox")
+        try:
+            task = kb.get_task(conn, task_id)
+        finally:
+            conn.close()
+        self.assertEqual(task.status, "blocked")
+
+    def test_hidden_blocked_task_cannot_be_dismissed(self):
+        task_id = self._hidden_blocked_inbox_task()
+
+        response = self.client.delete(f"/api/plugins/project-kanban/inbox/{task_id}")
+
+        self.assertEqual(response.status_code, 409, response.text)
+        conn = kb.connect(board="inbox")
+        try:
+            task = kb.get_task(conn, task_id)
+        finally:
+            conn.close()
+        self.assertEqual(task.status, "blocked")
+
+    def test_dismiss_does_not_clear_worker_locks(self):
+        task_id = self._hidden_blocked_inbox_task(locked=True)
+
+        response = self.client.delete(f"/api/plugins/project-kanban/inbox/{task_id}")
+
+        self.assertEqual(response.status_code, 409, response.text)
+        conn = kb.connect(board="inbox")
+        try:
+            row = conn.execute(
+                "SELECT status, claim_lock, worker_pid FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(row["claim_lock"], "worker-1")
+        self.assertEqual(row["worker_pid"], 4242)
+
+    def test_dismissing_a_listed_candidate_claimed_mid_flight_preserves_its_lock(self):
+        """Pins the SQL compare-and-swap, not just the eligibility gate.
+
+        _candidate_stage re-reads inside the transaction, so it normally
+        rejects a claimed task first. To prove the UPDATE itself also refuses
+        to touch a claimed row, the eligibility gate is stubbed to admit it —
+        simulating a worker that claims the row after the gate has passed.
+        """
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Claimed mid-flight", "source": "manual"},
+        ).json()
+        task_id = candidate["id"]
+
+        conn = kb.connect(board="inbox")
+        try:
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET claim_lock = 'worker-9', worker_pid = 777 "
+                    "WHERE id = ?",
+                    (task_id,),
+                )
+
+            with patch.object(self.module, "_candidate_stage", return_value="captured"):
+                response = self.client.delete(
+                    f"/api/plugins/project-kanban/inbox/{task_id}"
+                )
+
+            self.assertEqual(response.status_code, 409, response.text)
+            row = conn.execute(
+                "SELECT status, claim_lock, worker_pid FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        self.assertNotEqual(row["status"], "archived")
+        self.assertEqual(row["claim_lock"], "worker-9")
+        self.assertEqual(row["worker_pid"], 777)
+
+    def test_worker_claimed_candidate_is_not_listed_in_the_inbox(self):
+        """A claimed task belongs to its worker and must vanish from listing."""
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Claimed candidate", "source": "manual"},
+        ).json()
+        task_id = candidate["id"]
+
+        conn = kb.connect(board="inbox")
+        try:
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET claim_lock = 'worker-3', worker_pid = 99 "
+                    "WHERE id = ?",
+                    (task_id,),
+                )
+        finally:
+            conn.close()
+
+        stages = self.client.get("/api/plugins/project-kanban/snapshot").json()["inbox"]["stages"]
+
+        listed = {task["id"] for stage in stages.values() for task in stage}
+        self.assertNotIn(task_id, listed)
+
+    def test_listed_candidate_remains_acceptable_and_dismissible(self):
+        acceptable = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Real candidate", "source": "manual"},
+        ).json()
+        dismissable = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Second candidate", "source": "manual"},
+        ).json()
+
+        accepted = self.client.post(
+            f"/api/plugins/project-kanban/inbox/{acceptable['id']}/accept",
+            json={"title": "Real candidate", "project_id": "research"},
+        )
+        dismissed = self.client.delete(
+            f"/api/plugins/project-kanban/inbox/{dismissable['id']}"
+        )
+
+        self.assertEqual(accepted.status_code, 200, accepted.text)
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
 
 
 if __name__ == "__main__":
