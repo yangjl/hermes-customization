@@ -42,8 +42,8 @@ test('cards carry colored badges, a priority tag, and open a docked detail panel
   assert.match(source, /color-mix\(in oklch/)
   assert.match(source, /'--ui-blue'/)
   assert.match(source, /'--ui-red'/)
-  assert.match(source, /Needs category/)
-  assert.match(source, /task\.category === 'unsorted'/)
+  assert.match(source, /Legacy \/ unlinked/)
+  assert.match(source, /category-mismatch/)
   // The detail rows name each tool's role rather than copying its contents.
   assert.match(source, /it does not copy them/)
 })
@@ -52,6 +52,33 @@ test('desktop plugin is opt-in and does not imply unsupported completion control
   const source = await readFile(pluginUrl, 'utf8')
   assert.match(source, /defaultEnabled: false/)
   assert.doesNotMatch(source, /Mark complete|Complete task/)
+})
+
+test('Board counts visible actions while Projects counts canonical projects', async () => {
+  const source = await readFile(pluginUrl, 'utf8')
+  const helper = source.match(/function countCategories\(items, ids\) \{([\s\S]*?)\n\}/)
+  assert.ok(helper, 'countCategories helper is missing')
+  const countCategories = new Function('items', 'ids', helper[1])
+  assert.deepEqual(
+    countCategories(
+      [
+        { category: 'main-research' },
+        { category: 'main-research' },
+        { category: 'legacy' }
+      ],
+      ['main-research', 'student-projects', 'systems-admin', 'legacy']
+    ),
+    {
+      'main-research': 2,
+      'student-projects': 0,
+      'systems-admin': 0,
+      legacy: 1
+    }
+  )
+  assert.match(source, /const boardTasks = lanes\.flatMap/)
+  assert.match(source, /const filterCounts = view === 'board' \? actionCounts : data\.projects\.categories/)
+  assert.match(source, /const filterTotal = view === 'board' \? boardTasks\.length : data\.projects\.total_active/)
+  assert.match(source, /Legacy \/ unlinked/)
 })
 
 test('Kanban v2 keeps Board first and adds global Projects plus the office Inbox boundary', async () => {

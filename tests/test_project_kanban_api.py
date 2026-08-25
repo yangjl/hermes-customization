@@ -147,7 +147,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             "accepted": [],
         })
 
-    def test_snapshot_preserves_unsorted_task_category(self):
+    def test_snapshot_moves_unlinked_task_to_legacy(self):
         conn = kb.connect(board="todos")
         try:
             task_id = kb.create_task(
@@ -165,7 +165,74 @@ class ProjectKanbanApiTest(unittest.TestCase):
         snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
         task = next(item for item in snapshot["lanes"]["next"] if item["id"] == task_id)
 
-        self.assertEqual(task["category"], "unsorted")
+        self.assertEqual(task["category"], "legacy")
+        self.assertEqual(task["reconciliation"], "unlinked")
+
+    def test_snapshot_derives_linked_action_category_from_active_project(self):
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Review student chapter",
+                body=self.module._human_task_body(
+                    "",
+                    "next",
+                    project_id="student",
+                ),
+                tenant="student-projects",
+                created_by="project-kanban",
+                initial_status="blocked",
+                board="todos",
+            )
+        finally:
+            conn.close()
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        task = next(item for item in snapshot["lanes"]["next"] if item["id"] == task_id)
+
+        self.assertEqual(task["category"], "student-projects")
+        self.assertEqual(task["project"]["project_id"], "student")
+        self.assertEqual(task["reconciliation"], "linked")
+
+    def test_snapshot_moves_unavailable_and_mismatched_project_links_to_legacy(self):
+        (self.vault / "Projects" / "paused.md").write_text(
+            "---\nproject_id: paused\nknowledge_status: paused\n"
+            "project_category: systems-admin\n---\n# Paused\n",
+            encoding="utf-8",
+        )
+        cases = (
+            ("Inactive project", "paused", "systems-admin", "unavailable-project"),
+            ("Missing project", "does-not-exist", "main-research", "unavailable-project"),
+            ("Mismatched project", "research", "student-projects", "category-mismatch"),
+        )
+        task_ids = {}
+        conn = kb.connect(board="todos")
+        try:
+            for title, project_id, tenant, _ in cases:
+                task_ids[title] = kb.create_task(
+                    conn,
+                    title=title,
+                    body=self.module._human_task_body("", "next", project_id=project_id),
+                    tenant=tenant,
+                    created_by="project-kanban",
+                    initial_status="blocked",
+                    board="todos",
+                )
+        finally:
+            conn.close()
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        visible = {
+            item["id"]: item
+            for lane in snapshot["lanes"].values()
+            for item in lane
+        }
+
+        for title, _, _, reconciliation in cases:
+            with self.subTest(title=title):
+                task = visible[task_ids[title]]
+                self.assertEqual(task["category"], "legacy")
+                self.assertEqual(task["reconciliation"], reconciliation)
 
     def test_malformed_canonical_note_is_warned_excluded_and_not_actionable(self):
         (self.vault / "Projects" / "malformed.md").write_text(

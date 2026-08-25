@@ -26,8 +26,9 @@ const categories = [
   { id: 'student-projects', label: 'Student projects', icon: 'mortar-board', token: '--ui-green' },
   { id: 'systems-admin', label: 'Systems / admin', icon: 'tools', token: '--ui-purple' }
 ]
-const uncategorized = { id: 'unsorted', label: 'Needs category', icon: 'question', token: '--ui-text-tertiary' }
-const categoryOf = task => task.category === 'unsorted' ? uncategorized : categories.find(item => item.id === task.category) || uncategorized
+const legacyCategory = { id: 'legacy', label: 'Legacy / unlinked', icon: 'history', token: '--ui-text-tertiary' }
+const boardCategories = [...categories, legacyCategory]
+const categoryOf = item => boardCategories.find(category => category.id === item.category) || legacyCategory
 const sourceIcons = { email: 'mail', slack: 'comment-discussion', telegram: 'send', github: 'git-branch', manual: 'edit' }
 // The MVP's per-card priority tag. Native lifecycle cards carry the signal that
 // raised them; human-managed cards are only tagged once someone says so.
@@ -41,6 +42,17 @@ const ink = token => `color-mix(in oklch, var(${token}) 70%, var(--ui-text-prima
 
 function priorityOf(task) {
   return task.human_managed ? '' : priorityTags[task.source] || ''
+}
+
+function countCategories(items, ids) {
+  return Object.fromEntries(ids.map(id => [id, items.filter(item => item.category === id).length]))
+}
+
+function reconciliationLabel(task) {
+  if (task.reconciliation === 'linked') return 'Linked to active canonical project'
+  if (task.reconciliation === 'category-mismatch') return 'Legacy / unlinked · stored category disagrees with project'
+  if (task.reconciliation === 'unavailable-project') return 'Legacy / unlinked · project is inactive, missing, or invalid'
+  return 'Legacy / unlinked · no canonical project link'
 }
 
 function cardLinks(task) {
@@ -90,6 +102,7 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
   const category = categoryOf(task)
   const project = task.project
   return jsxs('article', {
+    'data-kanban-card': task.category,
     className: `rounded-lg border bg-(--ui-chat-surface-background) p-3 ${active ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary)'}`,
     children: [
       jsxs('div', {
@@ -98,7 +111,7 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
           jsx('span', {
             className: 'truncate rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
             style: { background: tint(category.token, 16), color: ink(category.token) },
-            children: project?.title || category.label
+            children: task.reconciliation === 'linked' ? project?.title : category.label
           }),
           priority ? jsx('span', {
             className: 'shrink-0 text-[9px] font-bold uppercase tracking-wide',
@@ -148,6 +161,7 @@ function TaskDetail({ task, lane, onClose, docked }) {
   const observation = project?.observation
   const rows = [
     ['Kanban', `${lanes.find(item => item.id === lane)?.label || 'Next'} · ${category.label}`],
+    ['Reconciliation', reconciliationLabel(task)],
     ['Project', project?.title || 'Unlinked action'],
     ['Goal', project?.goal || 'No canonical goal linked'],
     ['Project next action', project?.next_action || 'No canonical next action linked'],
@@ -202,6 +216,7 @@ function TaskDetail({ task, lane, onClose, docked }) {
 
 function Lane({ lane, tasks, mutate, onOpen, activeId }) {
   return jsxs('section', {
+    'data-kanban-lane': lane.id,
     className: 'min-w-0 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-quinary) p-2.5',
     children: [
       jsxs('header', {
@@ -498,7 +513,16 @@ function Dashboard({ ctx }) {
   if (query.isError) return jsx(ErrorState, { title: 'Kanban unavailable', description: query.error?.message || 'The backend did not respond.', action: jsx(Button, { onClick: () => query.refetch(), children: 'Retry' }) })
 
   const data = query.data
+  const boardTasks = lanes.flatMap(lane => data.lanes[lane.id] || [])
+  const actionCounts = countCategories(boardTasks, boardCategories.map(item => item.id))
+  const filterCounts = view === 'board' ? actionCounts : data.projects.categories
+  const filterTotal = view === 'board' ? boardTasks.length : data.projects.total_active
+  const filterCategories = view === 'board' ? boardCategories : categories
   const filtered = Object.fromEntries(lanes.map(lane => [lane.id, (data.lanes[lane.id] || []).filter(task => category === 'all' || task.category === category)]))
+  const projectData = {
+    ...data.projects,
+    items: (data.projects.items || []).filter(project => category === 'all' || project.category === category)
+  }
   return jsxs('div', {
     className: 'flex h-full min-w-0 flex-col overflow-hidden bg-(--ui-sidebar-surface-background)',
     children: [
@@ -508,15 +532,15 @@ function Dashboard({ ctx }) {
           jsxs('div', { className: 'flex flex-wrap items-center justify-between gap-2', children: [
             jsxs('div', { className: 'min-w-0', children: [jsxs('h1', { className: 'flex items-center gap-2 truncate text-lg font-medium', children: [jsx(Codicon, { name: 'project' }), 'Project Kanban'] }), jsx('div', { className: 'mt-0.5 text-xs text-(--ui-text-tertiary)', children: `${data.projects.total_active} canonical projects · Obsidian truth · native local actions` })] }),
             jsxs('div', { className: 'flex items-center gap-1', children: [
-              jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => { setView('board'); setDetail(null) }, 'aria-label': 'Show action board', children: 'Board' }),
-              jsx(Button, { variant: view === 'projects' ? 'secondary' : 'ghost', onClick: () => { setView('projects'); setDetail(null) }, 'aria-label': 'Show canonical projects', children: 'Projects' }),
-              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => { setView('inbox'); setDetail(null) }, 'aria-label': 'Show Office Inbox', children: 'Office Inbox' }),
+              jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => { setView('board'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show action board', children: 'Board' }),
+              jsx(Button, { variant: view === 'projects' ? 'secondary' : 'ghost', onClick: () => { setView('projects'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show canonical projects', children: 'Projects' }),
+              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => { setView('inbox'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show Office Inbox', children: 'Office Inbox' }),
               view === 'board' ? jsx(IconButton, { icon: 'add', label: 'Add next action', onClick: () => setAdding(value => !value) }) : null
             ] })
           ] }),
-          view === 'board' ? jsxs('div', { className: 'mt-3 flex flex-wrap gap-1.5', children: [
-            jsx(Button, { variant: category === 'all' ? 'secondary' : 'ghost', onClick: () => setCategory('all'), children: `All · ${data.projects.total_active}` }),
-            ...categories.map(item => jsx(Button, { variant: category === item.id ? 'secondary' : 'ghost', onClick: () => setCategory(item.id), children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: item.icon }), jsx('span', { children: item.label }), jsx('span', { className: 'text-(--ui-text-tertiary)', children: data.projects.categories[item.id] || 0 })] }) }, item.id))
+          view !== 'inbox' ? jsxs('div', { className: 'mt-3 flex flex-wrap gap-1.5', children: [
+            jsx(Button, { variant: category === 'all' ? 'secondary' : 'ghost', onClick: () => setCategory('all'), 'data-kanban-filter': `${view}:all`, 'aria-label': `${view === 'board' ? 'Board actions' : 'Canonical projects'} · All · ${filterTotal}`, children: `All · ${filterTotal}` }),
+            ...filterCategories.map(item => jsx(Button, { variant: category === item.id ? 'secondary' : 'ghost', onClick: () => setCategory(item.id), 'data-kanban-filter': `${view}:${item.id}`, 'aria-label': `${view === 'board' ? 'Board actions' : 'Canonical projects'} · ${item.label} · ${filterCounts[item.id] || 0}`, children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: item.icon }), jsx('span', { children: item.label }), jsx('span', { className: 'text-(--ui-text-tertiary)', children: filterCounts[item.id] || 0 })] }) }, item.id))
           ] }) : null,
           view === 'board' && columns === 1 ? jsx('div', { className: 'mt-2 flex gap-1 overflow-auto', children: lanes.map(item => jsx(Button, { variant: selectedLane === item.id ? 'secondary' : 'ghost', onClick: () => setSelectedLane(item.id), children: item.label }, item.id)) }) : null
         ]
@@ -533,7 +557,7 @@ function Dashboard({ ctx }) {
                 style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
                 children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate, activeId: detail?.task.id, onOpen: task => setDetail({ task, lane: item.id }) }, item.id))
               }) : view === 'projects'
-                ? jsx(Projects, { data: data.projects, ctx })
+                ? jsx(Projects, { data: projectData, ctx })
                 : jsx(Inbox, { data: data.inbox, mutate, projects: data.projects.items || [] })
             ]
           }),

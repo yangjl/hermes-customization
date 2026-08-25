@@ -396,6 +396,17 @@ def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None)
         project_id = ""
     if workflow_lane not in LANE_IDS:
         workflow_lane = ""
+    stored_category = task.tenant if task.tenant in CATEGORIES else ""
+    project = (projects or {}).get(project_id)
+    if not project_id:
+        reconciliation = "unlinked"
+    elif project is None:
+        reconciliation = "unavailable-project"
+    elif stored_category != project["category"]:
+        reconciliation = "category-mismatch"
+    else:
+        reconciliation = "linked"
+    category = project["category"] if project is not None and reconciliation == "linked" else "legacy"
     suggested_category, suggestion_reason = _suggestion(task.title, body)
     return {
         "id": task.id,
@@ -403,7 +414,7 @@ def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None)
         "body": body,
         "status": task.status,
         "priority": task.priority,
-        "category": task.tenant if task.tenant in {*CATEGORIES, "unsorted"} else "unsorted",
+        "category": category,
         "assignee": task.assignee,
         "created_at": task.created_at,
         "source": source,
@@ -414,7 +425,8 @@ def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None)
         "human_managed": human_managed,
         "workflow_lane": workflow_lane or None,
         "project_id": project_id or None,
-        "project": (projects or {}).get(project_id),
+        "project": project,
+        "reconciliation": reconciliation,
         "links": _links(body),
     }
 
