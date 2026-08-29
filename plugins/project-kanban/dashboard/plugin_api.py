@@ -760,21 +760,31 @@ def edit_inbox(task_id: str, payload: InboxEdit) -> dict[str, Any]:
             candidate = kb.get_task(conn, task_id)
             if candidate is None or _candidate_stage(candidate) is None:
                 raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
-            metadata = _metadata(candidate.body)
-            if payload.details is not None:
-                metadata["details"] = payload.details
-            workflow = metadata.get("project_kanban")
-            if not isinstance(workflow, dict):
-                workflow = {}
-            if project_id is not None:
-                workflow["project_id"] = project_id
-            if workflow:
-                metadata["project_kanban"] = workflow
+            updated_body = candidate.body
+            if payload.details is not None or project_id is not None:
+                metadata = _metadata(candidate.body)
+                if not metadata and candidate.body:
+                    try:
+                        parsed_body = json.loads(candidate.body)
+                    except (TypeError, ValueError):
+                        parsed_body = None
+                    if not isinstance(parsed_body, dict):
+                        metadata["details"] = candidate.body
+                if payload.details is not None:
+                    metadata["details"] = payload.details
+                workflow = metadata.get("project_kanban")
+                if not isinstance(workflow, dict):
+                    workflow = {}
+                if project_id is not None:
+                    workflow["project_id"] = project_id
+                if workflow:
+                    metadata["project_kanban"] = workflow
+                updated_body = json.dumps(metadata)
             update_title = title if title is not None else candidate.title
             updated = conn.execute(
                 "UPDATE tasks SET title = ?, body = ? WHERE id = ? "
                 "AND claim_lock IS NULL AND worker_pid IS NULL",
-                (update_title, json.dumps(metadata), task_id),
+                (update_title, updated_body, task_id),
             )
             if updated.rowcount != 1:
                 raise HTTPException(status_code=409, detail="Inbox candidate changed while it was being edited")

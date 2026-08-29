@@ -655,6 +655,79 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(repeated.status_code, 201, repeated.text)
         self.assertNotEqual(repeated.json()["id"], candidate["id"])
 
+    def test_title_only_inbox_edit_preserves_legacy_plain_text_body(self):
+        original_body = "Legacy notes that must survive a title correction."
+        conn = kb.connect(board="inbox")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Original title",
+                body=original_body,
+                created_by="user",
+                initial_status="blocked",
+                board="inbox",
+            )
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET status = 'ready', block_kind = NULL WHERE id = ?",
+                    (task_id,),
+                )
+        finally:
+            conn.close()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{task_id}",
+            json={"title": "Corrected title"},
+        )
+
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["body"], original_body)
+        conn = kb.connect(board="inbox")
+        try:
+            stored = kb.get_task(conn, task_id)
+            assert stored is not None
+            self.assertEqual(stored.body, original_body)
+        finally:
+            conn.close()
+
+    def test_project_assignment_migrates_legacy_body_without_losing_notes(self):
+        original_body = "Legacy notes that must survive project assignment."
+        conn = kb.connect(board="inbox")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Legacy candidate",
+                body=original_body,
+                created_by="user",
+                initial_status="blocked",
+                board="inbox",
+            )
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET status = 'ready', block_kind = NULL WHERE id = ?",
+                    (task_id,),
+                )
+        finally:
+            conn.close()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{task_id}",
+            json={"project_id": "research"},
+        )
+
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["body"], original_body)
+        self.assertEqual(edited.json()["project_id"], "research")
+        conn = kb.connect(board="inbox")
+        try:
+            stored = kb.get_task(conn, task_id)
+            assert stored is not None
+            metadata = json.loads(stored.body or "")
+            self.assertEqual(metadata["details"], original_body)
+            self.assertEqual(metadata["project_kanban"]["project_id"], "research")
+        finally:
+            conn.close()
+
     def test_inbox_capture_does_not_create_office_authority(self):
         with patch.object(self.module.kb, "board_exists", return_value=False), patch.object(
             self.module.kb, "create_board"
