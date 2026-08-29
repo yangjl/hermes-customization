@@ -168,6 +168,12 @@ class InstallTest(unittest.TestCase):
             self.assertTrue(publisher.is_file())
             self.assertTrue(os.access(publisher, os.X_OK))
             self.assertIn("--publish-observations", publisher.read_text(encoding="utf-8"))
+            hardener = home / "scripts/harden-hermes-python-env.sh"
+            self.assertTrue(hardener.is_file())
+            self.assertTrue(os.access(hardener, os.X_OK))
+            reapply = home / "scripts/reapply-desktop-patch.sh"
+            self.assertTrue(reapply.is_file())
+            self.assertIn("Documents/projects/hermes-customizations", reapply.read_text(encoding="utf-8"))
             self.assertFalse((home / "scripts/sync-todo-kanban.py").exists())
             calls = log.read_text(encoding="utf-8")
             self.assertNotIn("plugins enable project-kanban", calls)
@@ -318,6 +324,31 @@ class InstallTest(unittest.TestCase):
 
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("could not create required board todos", result.stderr.lower())
+
+
+class DesktopPatchContentTest(unittest.TestCase):
+    """Shape guard for the regenerated Desktop source patch.
+
+    The patch is rebuilt wholesale from a worktree (`git diff --cached`), so a
+    section can vanish silently. Pin the profile-avatar-identity sections it
+    must carry, and the one file AGENTS.md forbids (apps/desktop/index.html).
+    """
+
+    def test_desktop_patch_carries_profile_identity_and_omits_index_html(self):
+        patch = (ROOT / "patches" / "desktop-research-workflow.patch").read_text(
+            encoding="utf-8"
+        )
+        for path in (
+            "apps/desktop/src/lib/profile-identity.ts",
+            "apps/desktop/src/lib/profile-identity.test.ts",
+            "apps/desktop/src/components/ui/profile-avatar.tsx",
+            "apps/desktop/src/components/ui/profile-avatar.test.tsx",
+            "apps/desktop/src/app/chat/sidebar/profile-switcher.tsx",
+            "apps/desktop/src/app/chat/sidebar/session-row.tsx",
+            "apps/desktop/src/app/chat/sidebar/fleet-rail.ts",
+        ):
+            self.assertIn(f"diff --git a/{path} b/{path}", patch)
+        self.assertNotIn("a/apps/desktop/index.html", patch)
 
 
 if __name__ == "__main__":

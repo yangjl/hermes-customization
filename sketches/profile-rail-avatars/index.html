@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Profile rail avatars — visual MVP</title>
+  <style>
+    :root{
+      color-scheme:light;
+      --bg:#f5f5f5;--surface:#fff;--sidebar:#f3f3f3;--panel:#fafafa;--text:#252525;
+      --muted:#6c6c6c;--quiet:#969696;--border:#d9d9d9;--accent:#0875c1;--accent-soft:#e7f2fb;
+      --hover:#e9e9e9;--menu:#fff;--shadow:0 16px 38px rgba(0,0,0,.15);--green:#24835f;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;overflow:hidden;background:var(--bg);color:var(--text);font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+    button{font:inherit;color:inherit}
+    button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    .app{display:grid;grid-template-columns:320px minmax(0,1fr);height:100%;min-height:520px}
+    .app.narrow{grid-template-columns:254px minmax(0,1fr)}
+    .sidebar{display:flex;min-width:0;flex-direction:column;border-right:1px solid var(--border);background:var(--sidebar)}
+    .window-head{display:flex;height:46px;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:0 12px;font-weight:650}
+    .window-mark{display:grid;width:22px;height:22px;place-items:center;border-radius:6px;background:var(--accent);color:#fff;font-size:10px;font-weight:800}
+    .section-tabs{display:flex;gap:4px;padding:8px 9px 5px}.section-tab{border:0;border-radius:5px;background:transparent;padding:5px 8px;color:var(--muted);cursor:pointer}.section-tab.active{background:#e4e4e4;color:var(--text);font-weight:650}
+    .search{height:30px;margin:2px 10px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;padding:0 9px;color:var(--quiet)}
+    .project-label{padding:7px 12px 4px;color:var(--quiet);font-size:10px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+    .sessions{display:grid;gap:2px;padding:0 7px}.session{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:8px;border:0;border-radius:6px;background:transparent;padding:7px;text-align:left;cursor:pointer}.session:hover{background:var(--hover)}.session.active{background:#e2edf5}.session-avatar{width:24px;height:24px;overflow:hidden;border-radius:6px}.session-copy{min-width:0}.session-name,.session-owner{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.session-name{font-weight:570}.session-owner{margin-top:1px;color:var(--quiet);font-size:9px}.session-time{align-self:start;margin-top:2px;color:var(--quiet);font-size:10px}
+    .sidebar-spacer{flex:1}
+    .status{display:flex;align-items:center;gap:7px;border-top:1px solid var(--border);padding:7px 10px;color:var(--muted);font-size:11px}.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+    .profile-rail-wrap{position:relative;border-top:1px solid var(--border);padding:8px 9px 9px}.profile-rail-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;color:var(--quiet);font-size:9px;font-weight:740;letter-spacing:.06em;text-transform:uppercase}.fixture{border:1px solid #a4cae4;border-radius:999px;background:var(--accent-soft);padding:2px 6px;color:#176694;font-size:8px}
+    .profile-rail{display:flex;min-width:0;align-items:center;gap:5px}.rail-action,.avatar-button,.initial-button{display:grid;width:28px;height:28px;flex:none;place-items:center;border:0;border-radius:6px;background:transparent;cursor:pointer}.rail-action{color:var(--muted);font-size:17px}.rail-action:hover{background:var(--hover);color:var(--text)}.rail-action.home.active{background:#dfe8ee;color:#2d414e}.rail-separator{width:1px;height:18px;background:var(--border)}.rail-spacer{flex:1;min-width:2px}
+    .avatar-button,.initial-button{position:relative;padding:0;opacity:.66;transition:opacity .14s,transform .14s,box-shadow .14s}.avatar-button:hover,.initial-button:hover{opacity:1;transform:translateY(-1px)}.avatar-button.active,.initial-button.active{opacity:1;box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--agent-color)}
+    .avatar-button.working::after{content:"";position:absolute;right:-2px;bottom:-2px;width:8px;height:8px;border:2px solid var(--sidebar);border-radius:50%;background:var(--green)}.avatar-button.working::before{content:"";position:absolute;inset:-4px;border:1px solid var(--agent-color);border-radius:9px;animation:pulse 1.5s infinite}.initial-button{background:color-mix(in srgb,var(--agent-color) 20%,transparent);color:var(--agent-color);font-size:11px;font-weight:760;text-transform:uppercase}
+    @keyframes pulse{0%,100%{opacity:.2;transform:scale(.95)}50%{opacity:.75;transform:scale(1.05)}}
+    .avatar{position:relative;width:100%;height:100%;overflow:hidden;border-radius:6px;background:var(--agent-bg)}
+    .avatar.blob::before{content:"";position:absolute;left:4px;top:5px;width:20px;height:18px;border-radius:46% 54% 48% 52%/56% 48% 52% 44%;background:#f7d99b;transform:rotate(-7deg)}.avatar.blob .eye,.avatar.geo .eye{position:absolute;z-index:2;top:11px;width:2px;height:3px;border-radius:50%;background:#313131}.avatar .eye.left{left:10px}.avatar .eye.right{right:10px}.avatar .smile{position:absolute;z-index:2;left:11px;top:16px;width:7px;height:4px;border-bottom:1.5px solid #3d3d3d;border-radius:0 0 8px 8px}.avatar.blob::after{content:"";position:absolute;left:4px;top:2px;width:20px;height:9px;border-radius:9px 10px 4px 3px;background:#73543d;transform:rotate(-5deg)}
+    .avatar.geo{background:linear-gradient(135deg,#cce7f7,#7dc0e9)}.avatar.geo::before{content:"";position:absolute;inset:4px 5px 4px;border-radius:45% 45% 35% 35%;background:#ebf6fc;clip-path:polygon(50% 0,100% 27%,86% 100%,14% 100%,0 27%)}.avatar.geo .smile{top:17px}
+    .avatar.portrait{background:linear-gradient(145deg,#e8c6b5 0 42%,#b5d2b4 42%)}.avatar.portrait::before{content:"";position:absolute;left:8px;top:5px;width:13px;height:15px;border-radius:50% 50% 44% 44%;background:#efc2a5}.avatar.portrait::after{content:"";position:absolute;left:6px;bottom:-7px;width:17px;height:18px;border-radius:50% 50% 0 0;background:#315d4a;box-shadow:0 -15px 0 -6px #3d2e28}
+    .avatar.pet{display:grid;place-items:center;background:#f5e5f8;font-size:17px}.avatar.pet::after{content:"🐙";filter:saturate(.7)}
+    .tooltip{position:fixed;z-index:30;transform:translate(-50%,-100%);border:1px solid #333;border-radius:5px;background:#292929;padding:4px 7px;color:#fff;font-size:10px;pointer-events:none;opacity:0;transition:.1s}.tooltip.show{opacity:1}
+    .context{position:fixed;z-index:25;display:none;width:178px;border:1px solid var(--border);border-radius:8px;background:var(--menu);padding:5px;box-shadow:var(--shadow)}.context.open{display:block}.menu-label{padding:5px 7px;color:var(--quiet);font-size:9px;font-weight:750;letter-spacing:.05em;text-transform:uppercase}.menu-item{display:flex;width:100%;align-items:center;gap:8px;border:0;border-radius:5px;background:transparent;padding:7px 8px;text-align:left;cursor:pointer}.menu-item:hover{background:var(--hover)}.menu-rule{height:1px;margin:4px;background:var(--border)}
+    .main{display:flex;min-width:0;flex-direction:column;background:var(--surface)}.header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding:12px 16px}.title{font-size:15px;font-weight:700}.sub{margin-top:2px;color:var(--muted);font-size:11px}.active-profile{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}.mini-avatar{width:24px;height:24px;overflow:hidden;border-radius:6px}
+    .prototype-bar{display:flex;flex-wrap:wrap;align-items:center;gap:7px;border-bottom:1px solid var(--border);background:var(--panel);padding:8px 16px}.prototype-title{margin-right:4px;color:var(--quiet);font-size:9px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}.control{border:1px solid var(--border);border-radius:6px;background:#fff;padding:5px 8px;cursor:pointer}.control:hover{border-color:#aaa}.control.active{border-color:#8fbedc;background:var(--accent-soft);color:#126797;font-weight:650}
+    .canvas{display:grid;min-height:0;flex:1;place-items:center;overflow:auto;padding:28px;background:#f7f7f7}.explain{width:min(620px,100%);border:1px solid var(--border);border-radius:12px;background:#fff;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.04)}.kicker{color:var(--accent);font-size:10px;font-weight:760;letter-spacing:.08em;text-transform:uppercase}.explain h1{margin:7px 0 7px;font-size:23px;letter-spacing:-.025em}.explain p{margin:0;color:var(--muted)}.contract{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:20px}.contract-item{border:1px solid var(--border);border-radius:8px;padding:11px}.contract-item strong{display:block;margin-bottom:3px;font-size:12px}.contract-item span{color:var(--muted);font-size:11px}.callout{margin-top:15px;border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 11px;color:#315f7d;font-size:11px}
+    .modal-backdrop{position:fixed;z-index:40;inset:0;display:none;place-items:center;background:rgba(0,0,0,.26);padding:20px}.modal-backdrop.open{display:grid}.modal{width:min(440px,100%);border:1px solid var(--border);border-radius:11px;background:#fff;box-shadow:var(--shadow)}.modal-head{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding:13px 15px}.modal-title{font-weight:700}.close{border:0;border-radius:5px;background:transparent;padding:3px 7px;color:var(--muted);cursor:pointer}.close:hover{background:var(--hover)}.modal-body{padding:15px}.avatar-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.avatar-choice{display:grid;gap:7px;place-items:center;border:1px solid var(--border);border-radius:8px;background:#fff;padding:10px 6px;color:var(--muted);font-size:10px;cursor:pointer}.avatar-choice:hover{background:var(--panel)}.avatar-choice.selected{border-color:var(--accent);background:var(--accent-soft);color:#14658f}.choice-face{width:44px;height:44px}.modal-foot{display:flex;justify-content:flex-end;gap:7px;border-top:1px solid var(--border);padding:10px 15px}.primary{border:1px solid #0868a8;border-radius:6px;background:var(--accent);padding:6px 11px;color:#fff;font-weight:650;cursor:pointer}.secondary{border:1px solid var(--border);border-radius:6px;background:#fff;padding:6px 11px;cursor:pointer}
+    .toast{position:fixed;z-index:50;right:18px;bottom:18px;max-width:330px;transform:translateY(12px);border-radius:7px;background:#2c2c2c;padding:9px 12px;color:#fff;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:.16s}.toast.show{transform:translateY(0);opacity:1}
+    @media(max-width:760px){.app,.app.narrow{grid-template-columns:minmax(238px,1fr)}.main{display:none}.profile-rail-label{display:none}.profile-rail-wrap{padding-top:9px}}
+    @media(max-width:310px){.profile-rail{gap:3px}.rail-action,.avatar-button,.initial-button{width:26px;height:26px}.rail-separator{display:none}}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="Hermes sidebar mockup">
+      <div class="window-head"><span class="window-mark">H</span><span>candidate_genes</span></div>
+      <div class="section-tabs"><button class="section-tab active">Sessions</button><button class="section-tab">Bots</button></div>
+      <div class="search">⌕ &nbsp; Search sessions</div>
+      <div class="project-label">Research</div>
+      <div class="sessions" id="sessions"></div>
+      <div class="sidebar-spacer"></div>
+      <div class="status"><span class="status-dot"></span><span>Gateway ready</span><span style="margin-left:auto">Agents&nbsp; 3</span></div>
+      <div class="profile-rail-wrap">
+        <div class="profile-rail-label"><span>Profile rail</span><span class="fixture">Synthetic fixture</span></div>
+        <div class="profile-rail" aria-label="Profiles">
+          <button class="rail-action home active" data-tip="All profiles" aria-label="All profiles">⌂</button>
+          <span class="rail-separator" aria-hidden="true"></span>
+          <div id="profiles" style="display:flex;align-items:center;gap:5px"></div>
+          <button class="rail-action" id="add" data-tip="New profile" aria-label="New profile">＋</button>
+          <div class="rail-spacer"></div>
+          <button class="rail-action" id="manage" data-tip="Manage profiles" aria-label="Manage profiles">⋯</button>
+          <button class="rail-action" id="connect" data-tip="Connect gateway" aria-label="Connect gateway">♧</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="header">
+        <div><div class="title">Avatar rail MVP</div><div class="sub">A compact identity upgrade, not a new navigation model</div></div>
+        <div class="active-profile"><span>Active profile</span><div class="mini-avatar" id="active-avatar"></div><strong id="active-name">Luna</strong></div>
+      </header>
+      <div class="prototype-bar">
+        <span class="prototype-title">Prototype controls</span>
+        <button class="control active" id="avatars-mode">Avatar proposal</button>
+        <button class="control" id="initials-mode">Current initials</button>
+        <button class="control" id="work-toggle">Simulate working</button>
+        <button class="control" id="narrow-toggle">Narrow sidebar</button>
+      </div>
+      <section class="canvas">
+        <article class="explain">
+          <div class="kicker">Decision prototype</div>
+          <h1>Recognize agents before reading labels.</h1>
+          <p>Named profiles keep their existing rail position and actions. Only the identity mark changes from a colored initial to the avatar already stored in profile metadata.</p>
+          <div class="contract">
+            <div class="contract-item"><strong>Same footprint</strong><span>28 px tiles; no second rail or labels.</span></div>
+            <div class="contract-item"><strong>Active ring</strong><span>Profile color remains the selected-state cue.</span></div>
+            <div class="contract-item"><strong>Safe fallback</strong><span>Missing or failed images fall back to the current initial.</span></div>
+            <div class="contract-item"><strong>Busy presence</strong><span>One green dot plus a restrained pulse.</span></div>
+            <div class="contract-item"><strong>Session identity</strong><span>Every session repeats its owner’s avatar and nickname.</span></div>
+            <div class="contract-item"><strong>One metadata source</strong><span>Rail, session list, and Bot roster stay visually consistent.</span></div>
+          </div>
+          <div class="callout">Try selecting an avatar, right-clicking it, switching to “Current initials,” and narrowing the sidebar. All data is synthetic and stays in this page.</div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div class="context" id="context" role="menu">
+    <div class="menu-label" id="context-label">Profile</div>
+    <button class="menu-item" id="edit-avatar">◉ <span>Edit avatar…</span></button>
+    <button class="menu-item" id="rename">T <span>Rename</span></button>
+    <button class="menu-item" id="color">● <span>Profile color</span></button>
+    <button class="menu-item" id="soul">✎ <span>Edit SOUL.md</span></button>
+    <div class="menu-rule"></div>
+    <button class="menu-item" id="switch-profile">→ <span>Switch to profile</span></button>
+  </div>
+  <div class="tooltip" id="tooltip"></div>
+
+  <div class="modal-backdrop" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal">
+      <div class="modal-head"><span class="modal-title" id="modal-title">Choose avatar</span><button class="close" id="close-modal" aria-label="Close">×</button></div>
+      <div class="modal-body"><div class="avatar-grid" id="avatar-grid"></div></div>
+      <div class="modal-foot"><button class="secondary" id="cancel-modal">Cancel</button><button class="primary" id="save-avatar">Use avatar</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const profiles=[
+      {id:'luna',name:'Luna',kind:'blob',color:'#73a7cb',bg:'#dcecf7'},
+      {id:'research',name:'Research',kind:'geo',color:'#d28472',bg:'#f7e4df'},
+      {id:'lab-librarian',name:'Lab Librarian',kind:'portrait',color:'#b8756c',bg:'#f1dfdb'}
+    ];
+    const sessions=[
+      {title:'Profile rail avatars',owner:'luna',time:'now',active:true},
+      {title:'Candidate gene review',owner:'research',time:'9m'},
+      {title:'Lab weekly planning',owner:'lab-librarian',time:'1h'}
+    ];
+    const choices=[['blob','Blob face'],['geo','Geometric'],['portrait','Uploaded'],['pet','Pixel pet']];
+    let active='luna',mode='avatars',working=false,contextProfile='luna',pendingKind='blob';
+    const app=document.getElementById('app'),profileHost=document.getElementById('profiles'),activeName=document.getElementById('active-name'),activeAvatar=document.getElementById('active-avatar'),context=document.getElementById('context'),tooltip=document.getElementById('tooltip'),modal=document.getElementById('modal'),toast=document.getElementById('toast');
+    function face(kind,extra=''){return `<span class="avatar ${kind} ${extra}">${kind==='blob'||kind==='geo'?'<i class="eye left"></i><i class="eye right"></i><i class="smile"></i>':''}</span>`}
+    function profile(id){return profiles.find(item=>item.id===id)}
+    function renderSessions(){document.getElementById('sessions').innerHTML=sessions.map(item=>{const owner=profile(item.owner);return `<button class="session ${item.active?'active':''}"><span class="session-avatar" style="--agent-bg:${owner.bg}">${face(owner.kind)}</span><span class="session-copy"><span class="session-name">${item.title}</span><span class="session-owner">${owner.name}</span></span><span class="session-time">${item.time}</span></button>`}).join('')}
+    function render(){
+      profileHost.innerHTML=profiles.map(item=>mode==='avatars'
+        ?`<button class="avatar-button ${active===item.id?'active':''} ${working&&active===item.id?'working':''}" style="--agent-color:${item.color};--agent-bg:${item.bg}" data-id="${item.id}" data-tip="${item.name}" aria-label="${item.name}${active===item.id?', active':''}" aria-pressed="${active===item.id}">${face(item.kind)}</button>`
+        :`<button class="initial-button ${active===item.id?'active':''}" style="--agent-color:${item.color}" data-id="${item.id}" data-tip="${item.name}" aria-label="${item.name}${active===item.id?', active':''}" aria-pressed="${active===item.id}">${item.name.charAt(0)}</button>`).join('');
+      profileHost.querySelectorAll('[data-id]').forEach(button=>{
+        button.addEventListener('click',()=>select(button.dataset.id));
+        button.addEventListener('contextmenu',event=>openContext(event,button.dataset.id));
+      });
+      renderSessions();
+      const current=profile(active);activeName.textContent=current.name;activeAvatar.innerHTML=face(current.kind);activeAvatar.style.setProperty('--agent-bg',current.bg);
+      document.getElementById('avatars-mode').classList.toggle('active',mode==='avatars');
+      document.getElementById('initials-mode').classList.toggle('active',mode==='initials');
+      document.getElementById('work-toggle').classList.toggle('active',working);
+    }
+    function select(id){active=id;closeContext();render();notify(`Switched to ${profile(id).name}. Prototype state only.`)}
+    function openContext(event,id){event.preventDefault();contextProfile=id;document.getElementById('context-label').textContent=profile(id).name;context.style.left=`${Math.min(event.clientX,innerWidth-190)}px`;context.style.top=`${Math.min(event.clientY,innerHeight-205)}px`;context.classList.add('open')}
+    function closeContext(){context.classList.remove('open')}
+    function notify(message){toast.textContent=message;toast.classList.add('show');clearTimeout(notify.timer);notify.timer=setTimeout(()=>toast.classList.remove('show'),2200)}
+    function openModal(){closeContext();pendingKind=profile(contextProfile).kind;renderChoices();document.getElementById('modal-title').textContent=`Choose avatar for ${profile(contextProfile).name}`;modal.classList.add('open')}
+    function renderChoices(){document.getElementById('avatar-grid').innerHTML=choices.map(([kind,label])=>`<button class="avatar-choice ${pendingKind===kind?'selected':''}" data-kind="${kind}"><span class="choice-face" style="--agent-bg:#e8edf0">${face(kind)}</span><span>${label}</span></button>`).join('');document.querySelectorAll('.avatar-choice').forEach(button=>button.addEventListener('click',()=>{pendingKind=button.dataset.kind;renderChoices()}))}
+    function closeModal(){modal.classList.remove('open')}
+    document.getElementById('avatars-mode').addEventListener('click',()=>{mode='avatars';render()});
+    document.getElementById('initials-mode').addEventListener('click',()=>{mode='initials';working=false;render()});
+    document.getElementById('work-toggle').addEventListener('click',()=>{working=!working;if(mode==='initials')mode='avatars';render()});
+    document.getElementById('narrow-toggle').addEventListener('click',event=>{app.classList.toggle('narrow');event.currentTarget.classList.toggle('active',app.classList.contains('narrow'))});
+    document.getElementById('edit-avatar').addEventListener('click',openModal);
+    document.getElementById('switch-profile').addEventListener('click',()=>select(contextProfile));
+    document.getElementById('rename').addEventListener('click',()=>{closeContext();notify('Prototype only — would open Rename Profile.')});
+    document.getElementById('color').addEventListener('click',()=>{closeContext();notify('Profile color remains independent from the avatar.')});
+    document.getElementById('soul').addEventListener('click',()=>{closeContext();notify('Prototype only — would open SOUL.md.')});
+    document.getElementById('close-modal').addEventListener('click',closeModal);document.getElementById('cancel-modal').addEventListener('click',closeModal);
+    document.getElementById('save-avatar').addEventListener('click',()=>{profile(contextProfile).kind=pendingKind;closeModal();mode='avatars';render();notify(`Avatar updated for ${profile(contextProfile).name}. Prototype state only.`)});
+    modal.addEventListener('click',event=>{if(event.target===modal)closeModal()});
+    document.getElementById('add').addEventListener('click',()=>notify('Prototype only — would open New Agent.'));
+    document.getElementById('manage').addEventListener('click',()=>notify('Prototype only — would open Manage Profiles.'));
+    document.getElementById('connect').addEventListener('click',()=>notify('Prototype only — would open Connections.'));
+    document.addEventListener('click',event=>{if(!context.contains(event.target))closeContext()});
+    document.addEventListener('mouseover',event=>{const target=event.target.closest('[data-tip]');if(!target)return;const rect=target.getBoundingClientRect();tooltip.textContent=target.dataset.tip;tooltip.style.left=`${rect.left+rect.width/2}px`;tooltip.style.top=`${rect.top-5}px`;tooltip.classList.add('show')});
+    document.addEventListener('mouseout',event=>{if(event.target.closest('[data-tip]'))tooltip.classList.remove('show')});
+    document.addEventListener('keydown',event=>{if(event.key==='Escape'){closeContext();closeModal()}if((event.key==='ArrowLeft'||event.key==='ArrowRight')&&document.activeElement?.dataset?.id){const i=profiles.findIndex(item=>item.id===document.activeElement.dataset.id),step=event.key==='ArrowRight'?1:-1,next=profiles[(i+step+profiles.length)%profiles.length];select(next.id);requestAnimationFrame(()=>document.querySelector(`[data-id="${next.id}"]`)?.focus())}});
+    render();
+  </script>
+</body>
+</html>

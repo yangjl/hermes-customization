@@ -718,6 +718,112 @@ class ProjectKanbanApiTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_human_managed_lane_move_succeeds_regardless_of_native_status(self):
+        # PK-001 regression: a human-managed card's lane must be movable
+        # through this endpoint independent of native worker-lifecycle
+        # status. This synthetic case keeps human_managed true and lane
+        # "doing", while native status is "ready" (not "blocked"). Before
+        # the fix this PATCH returned 409 "Native worker lifecycle tasks are
+        # read-only".
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Launch example research portal", "project_id": "research", "lane": "doing"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        task = created.json()
+        self.assertTrue(task["human_managed"])
+
+        conn = kb.connect(board="todos")
+        try:
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET status = 'ready', block_kind = NULL WHERE id = ?",
+                    (task["id"],),
+                )
+            unchanged = kb.get_task(conn, task["id"])
+            assert unchanged is not None
+            self.assertEqual(unchanged.status, "ready")
+        finally:
+            conn.close()
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "review"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["workflow_lane"], "review")
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        self.assertIn(task["id"], [item["id"] for item in snapshot["lanes"]["review"]])
+
+    def test_pk003_externally_created_human_card_at_ready_status_moves(self):
+        # PK-003 investigation mirrors an externally created human-managed
+        # card. Unlike the case above, it was not created through this plugin,
+        # so it was never parked to native "blocked" and sits at native
+        # "ready" with no claim. The synthetic project_id is intentionally not
+        # resolvable here; reconciliation must not gate the move. This PATCH
+        # must return 200 on the fixed gate; the
+        # pre-PK-001-fix gate (native status must be 'blocked') returns the
+        # reported 409 "Native worker lifecycle tasks are read-only".
+        body = json.dumps({
+            "details": (
+                "Add a chat feature to an example research portal. Scope and "
+                "design are not yet defined and require a plan before "
+                "implementation starts. Project note: "
+                "Projects/Systems/example-research-portal.md"
+            ),
+            "project_kanban": {
+                "human_managed": True,
+                "lane": "next",
+                "project_id": "systems-example-portal",
+            },
+        })
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Build chat feature for example research portal",
+                body=body,
+                tenant="systems-admin",
+                created_by="user",
+                board="todos",
+            )
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET status = 'ready', block_kind = NULL, "
+                    "claim_lock = NULL, worker_pid = NULL WHERE id = ?",
+                    (task_id,),
+                )
+        finally:
+            conn.close()
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task_id}",
+            json={"lane": "review"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["workflow_lane"], "review")
+
+    def test_non_human_managed_task_at_ready_status_remains_read_only(self):
+        # A native/autonomous task (no project_kanban.human_managed metadata)
+        # must still be rejected by this endpoint, even at a non-blocked
+        # native status and with no active claim — native worker lifecycle
+        # semantics are unchanged by the PK-001 fix.
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(conn, title="Native task", board="todos")
+            with kb.write_txn(conn):
+                conn.execute("UPDATE tasks SET status = 'ready' WHERE id = ?", (task_id,))
+        finally:
+            conn.close()
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task_id}",
+            json={"lane": "doing"},
+        )
+        self.assertEqual(moved.status_code, 409, moved.text)
+        self.assertIn("read-only", moved.json()["detail"])
+
     def test_human_lane_move_preserves_parent_dependencies(self):
         conn = kb.connect(board="todos")
         try:
@@ -990,6 +1096,135 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         self.assertEqual(accepted.status_code, 200, accepted.text)
         self.assertEqual(dismissed.status_code, 200, dismissed.text)
+
+    # -- PK-002: PATCH /inbox/{task_id} (independent Save, no accept/dismiss) --
+
+    def test_edit_captured_candidate_saves_title_and_project_visible_in_snapshot(self):
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Reply to Maya", "source": "email"},
+        ).json()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{candidate['id']}",
+            json={
+                "title": "Reply to Maya about draft figures",
+                "project_id": "research",
+                "details": "Maya wants feedback before Friday.",
+            },
+        )
+
+        self.assertEqual(edited.status_code, 200, edited.text)
+        body = edited.json()
+        self.assertEqual(body["title"], "Reply to Maya about draft figures")
+        self.assertEqual(body["project_id"], "research")
+        self.assertEqual(body["body"], "Maya wants feedback before Friday.")
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        saved = next(
+            item for item in snapshot["inbox"]["stages"]["captured"]
+            if item["id"] == candidate["id"]
+        )
+        self.assertEqual(saved["title"], "Reply to Maya about draft figures")
+        self.assertEqual(saved["project_id"], "research")
+
+    def test_edit_succeeds_on_suggested_stage_candidate_native_todo_ready_status(self):
+        conn = kb.connect(board="inbox")
+        try:
+            task_id = kb.create_task(conn, title="Legacy suggestion", board="inbox")
+            with kb.write_txn(conn):
+                conn.execute("UPDATE tasks SET status = 'ready' WHERE id = ?", (task_id,))
+        finally:
+            conn.close()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{task_id}",
+            json={"title": "Legacy suggestion, revised"},
+        )
+
+        self.assertEqual(edited.status_code, 200, edited.text)
+        self.assertEqual(edited.json()["title"], "Legacy suggestion, revised")
+        conn = kb.connect(board="inbox")
+        try:
+            task = kb.get_task(conn, task_id)
+        finally:
+            conn.close()
+        self.assertEqual(task.status, "ready")
+
+    def test_edit_rejects_claimed_candidate(self):
+        task_id = self._hidden_blocked_inbox_task(locked=True)
+
+        response = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{task_id}",
+            json={"title": "Sneaky edit"},
+        )
+
+        self.assertEqual(response.status_code, 409, response.text)
+
+    def test_edit_rejects_archived_dismissed_candidate(self):
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Ignore newsletter", "source": "email"},
+        ).json()
+        dismissed = self.client.delete(f"/api/plugins/project-kanban/inbox/{candidate['id']}")
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{candidate['id']}",
+            json={"title": "Must not save"},
+        )
+
+        self.assertEqual(edited.status_code, 409, edited.text)
+
+    def test_edit_rejects_blank_title_after_strip(self):
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Real candidate", "source": "manual"},
+        ).json()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{candidate['id']}",
+            json={"title": "   "},
+        )
+
+        self.assertEqual(edited.status_code, 422, edited.text)
+
+    def test_edit_rejects_unknown_project_id(self):
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Real candidate", "source": "manual"},
+        ).json()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{candidate['id']}",
+            json={"project_id": "does-not-exist"},
+        )
+
+        self.assertEqual(edited.status_code, 422, edited.text)
+
+    def test_edit_does_not_change_status_candidate_stage_or_review_candidate(self):
+        candidate = self.client.post(
+            "/api/plugins/project-kanban/inbox/capture",
+            json={"title": "Real candidate", "source": "manual"},
+        ).json()
+
+        edited = self.client.patch(
+            f"/api/plugins/project-kanban/inbox/{candidate['id']}",
+            json={"title": "Real candidate, revised", "details": "More context"},
+        )
+        self.assertEqual(edited.status_code, 200, edited.text)
+
+        conn = kb.connect(board="inbox")
+        try:
+            task = kb.get_task(conn, candidate["id"])
+        finally:
+            conn.close()
+        self.assertEqual(task.status, candidate["status"])
+        metadata = self.module._metadata(task.body)
+        self.assertEqual(metadata.get("candidate_stage"), "captured")
+        self.assertIs(metadata.get("review_candidate"), True)
+        self.assertEqual(metadata.get("details"), "More context")
+        self.assertEqual(task.title, "Real candidate, revised")
 
 
 if __name__ == "__main__":

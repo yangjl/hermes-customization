@@ -22,12 +22,17 @@ called done. Read it before adding a customization.
 - `plugins/` — backend (web-dashboard) plugins.
 - `scripts/refresh-todo-vault.py` — deterministic device-observation publisher for Project Kanban.
 - `scripts/reapply-desktop-patch.sh` — restores the Desktop patch after a Hermes update.
+- `scripts/harden-hermes-python-env.sh` — strips `__PYVENV_LAUNCHER__` from Hermes'
+  Python entry points so Desktop boots and `hermes update` survive macOS
+  framework-Python environment pollution (run by reapply-desktop-patch.sh).
 - `hooks/telegram-idea-capture/` — turns a Telegram message into an inbox card.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
-  larger composer, context-usage indicator, five-project recent list, panel
-  sizing, profile switching, Light Lab integration, and tests.
+  five-project recent list, panel sizing, profile switching, and tests. The
+  context meter and cross-surface skin support are native Hermes now and no
+  longer patched; the skin's `desktop_*` color overrides are ignored by the
+  native skin SDK. The three-line composer sizing was dropped as well.
 - `install.sh` — installs and activates the theme.
 - `install-desktop-app.sh` — packages, installs, pins, and opens a standalone
   macOS `Hermes.app`.
@@ -223,8 +228,28 @@ A `project_id` claimed by more than one active note is ambiguous: **every**
 claimant is excluded and warned, so an ambiguous ID can never be linked to an
 action — even when only one of the claimants is otherwise valid.
 
-`scripts/refresh-todo-vault.py --publish-observations` scans configured local
-roots and writes one allowlisted JSON record to
+`scripts/refresh-todo-vault.py` without arguments feeds the Office Desktop's
+immediate project folders into canonical Obsidian notes under `Projects/Desktop/`:
+
+- `~/Documents/projects` → `main-research`
+- `~/Documents/coworkers` → `student-projects`
+- `~/Documents/website` → `systems-admin`
+
+Activity is the newer of the latest local Git commit anywhere inside the
+immediate folder and the latest matching GitHub push. Only projects active in
+the last 90 days are automatically marked `knowledge_status: active`; older or
+undated projects remain `unreviewed` and therefore stay out of the Project
+Kanban API. Refreshes update generated frontmatter while preserving each note's
+human-authored Goal, Next action, Blocker, and other body content.
+
+Run the project-note sync by hand:
+
+```bash
+"${HERMES_HOME:-$HOME/.hermes}/hermes-agent/venv/bin/python" \
+"${HERMES_HOME:-$HOME/.hermes}/scripts/refresh-todo-vault.py"
+```
+
+The optional `--publish-observations` mode writes one allowlisted JSON record to
 `Observations/devices/$TODO_MACHINE.json`. The snapshot contains only stable
 project IDs, normalized GitHub repositories, commit/activity timestamps, short
 checked-out HEAD IDs, and dirty/ahead/behind counts. It contains no local paths,
@@ -235,8 +260,8 @@ rebases, stashes, or merges unrelated vault work. Any local commits already
 ahead must be observation-only commits for that same device path. The publisher
 validates every pending and newly created snapshot blob against the exact
 allowlisted schema, then pushes the validated commit ID explicitly, so unsafe
-history or a concurrent local commit cannot ride along. It never creates project
-notes, Kanban cards, or per-device project folders.
+history or a concurrent local commit cannot ride along. It never creates Kanban
+cards.
 
 Run the observation publisher by hand:
 
@@ -246,19 +271,15 @@ Run the observation publisher by hand:
 --publish-observations
 ```
 
-The weekday job runs that command at 8:00 AM Monday through Friday. It is a
-deterministic no-agent job; no model summarizes or interprets the snapshot.
-
-`TODO_MACHINE` names the observing device (for example,
-`TODO_MACHINE=MacLaptop-new`). `TODO_VAULT` changes the vault location, and
-`TODO_PROJECT_MAP` optionally maps a machine-local non-Git folder path to a
-canonical `project_id`. Reading private repository activity uses tokens from
-`.env` when present and otherwise reuses the authenticated `gh` CLI session.
-These values are machine-local and never stored in this repository.
-`TODO_MACHINE` is required and has no shared fallback filename. If a push loses
-a race, the scoped observation commit stays local: reconcile the vault with
-`git pull --rebase`, then rerun the publisher; an unchanged snapshot retries the
-pending push.
+The weekday project-note job runs the no-argument command at 8:00 AM Monday
+through Friday. It is deterministic and no-agent. `TODO_MACHINE` is required
+only for the optional observation publisher; `TODO_VAULT` changes the vault
+location, and `TODO_PROJECT_MAP` optionally maps a machine-local non-Git folder
+path to a canonical `project_id`. Reading private repository activity uses
+tokens from `.env` when present and otherwise reuses the authenticated `gh` CLI
+session. If an observation push loses a race, the scoped observation commit
+stays local: reconcile the vault with `git pull --rebase`, then rerun the
+publisher; an unchanged snapshot retries the pending push.
 
 ## Capturing ideas from Telegram
 
@@ -319,8 +340,12 @@ Obsidian projects. It has three views:
 
 New human actions select a canonical project. Their existing task-body metadata
 stores `project_id`, while category is derived from the project note. Existing
-unlinked v1 cards remain usable. Local lane moves, archives, and Inbox decisions
-are never written back to Git.
+unlinked v1 cards remain usable in **Legacy / unlinked**. Cards whose project is
+inactive, missing, invalid, or no longer agrees with the stored task category
+also move to that non-destructive reconciliation bucket. Board badges count the
+actions visible across its lanes; Projects badges count canonical Obsidian
+projects. Local lane moves, archives, and Inbox decisions are never written back
+to Git.
 
 Inbox accept and dismiss are scoped to exactly what the Inbox lists: one shared
 eligibility rule governs listing, accepting, and dismissing. A blocked task must

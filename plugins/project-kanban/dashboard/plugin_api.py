@@ -56,6 +56,12 @@ class InboxAccept(BaseModel):
     project_id: str
 
 
+class InboxEdit(BaseModel):
+    title: str | None = None
+    project_id: str | None = None
+    details: str | None = None
+
+
 def _frontmatter(path: Path) -> dict[str, str]:
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -476,10 +482,14 @@ def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
             raise HTTPException(status_code=404, detail="Task not found")
         metadata = _metadata(current["body"])
         workflow = metadata.get("project_kanban")
+        # Human lane state (project_kanban.lane) is tracked independently of the
+        # native worker-lifecycle `status` column. A human-managed card must be
+        # movable regardless of its native status; only an active native claim
+        # (a worker currently holding the task) blocks the move. Non-human
+        # (native/autonomous) tasks remain read-only through this endpoint.
         if (
             not isinstance(workflow, dict)
             or workflow.get("human_managed") is not True
-            or current["status"] != "blocked"
             or current["claim_lock"]
             or current["worker_pid"]
         ):
@@ -487,7 +497,7 @@ def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
         workflow["lane"] = lane
         metadata["project_kanban"] = workflow
         updated = conn.execute(
-            "UPDATE tasks SET body = ? WHERE id = ? AND status = 'blocked' "
+            "UPDATE tasks SET body = ? WHERE id = ? "
             "AND claim_lock IS NULL AND worker_pid IS NULL",
             (json.dumps(metadata), task_id),
         )
@@ -727,6 +737,57 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
     finally:
         target_conn.close()
         inbox_conn.close()
+
+
+@router.patch("/inbox/{task_id}")
+def edit_inbox(task_id: str, payload: InboxEdit) -> dict[str, Any]:
+    if not kb.board_exists(INBOX_BOARD):
+        raise HTTPException(status_code=404, detail="Inbox is unavailable")
+    title = payload.title.strip() if payload.title is not None else None
+    if payload.title is not None and not title:
+        raise HTTPException(status_code=422, detail="Title is required")
+    project_id = payload.project_id.strip() if payload.project_id is not None else None
+    if project_id is not None:
+        project_lookup = {
+            item["project_id"]: item for item in _project_records()["items"]
+        }
+        if project_lookup.get(project_id) is None:
+            raise HTTPException(status_code=422, detail="Canonical project is unavailable")
+    conn = kb.connect(board=INBOX_BOARD)
+    try:
+        now = int(time.time())
+        with kb.write_txn(conn):
+            candidate = kb.get_task(conn, task_id)
+            if candidate is None or _candidate_stage(candidate) is None:
+                raise HTTPException(status_code=409, detail="Inbox candidate is no longer active")
+            metadata = _metadata(candidate.body)
+            if payload.details is not None:
+                metadata["details"] = payload.details
+            workflow = metadata.get("project_kanban")
+            if not isinstance(workflow, dict):
+                workflow = {}
+            if project_id is not None:
+                workflow["project_id"] = project_id
+            if workflow:
+                metadata["project_kanban"] = workflow
+            update_title = title if title is not None else candidate.title
+            updated = conn.execute(
+                "UPDATE tasks SET title = ?, body = ? WHERE id = ? "
+                "AND claim_lock IS NULL AND worker_pid IS NULL",
+                (update_title, json.dumps(metadata), task_id),
+            )
+            if updated.rowcount != 1:
+                raise HTTPException(status_code=409, detail="Inbox candidate changed while it was being edited")
+            conn.execute(
+                "INSERT INTO task_events (task_id, kind, payload, created_at) VALUES (?, 'edited', ?, ?)",
+                (task_id, json.dumps({"source": "project-kanban"}), now),
+            )
+        task = kb.get_task(conn, task_id)
+        if task is None:
+            raise HTTPException(status_code=500, detail="Inbox update failed")
+        return _task_view(task)
+    finally:
+        conn.close()
 
 
 @router.delete("/inbox/{task_id}")

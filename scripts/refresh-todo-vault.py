@@ -37,10 +37,13 @@ VAULT = Path(os.environ.get("TODO_VAULT", "~/Documents/WikiHub/todo-list")).expa
 MACHINE = local_setting("TODO_MACHINE")
 PROJECT_MAP = Path(os.environ.get("TODO_PROJECT_MAP", "~/.hermes/project-map.json")).expanduser()
 ACCOUNTS = ("yangjl", "jyanglab")
-SCAN_ROOTS = (
-    Path("~/Documents/projects").expanduser(),
-    Path("~/Documents/website").expanduser(),
+PROJECT_ROOTS = (
+    (Path("~/Documents/projects").expanduser(), "Main Research", "main-research", "Main research"),
+    (Path("~/Documents/coworkers").expanduser(), "Student Projects", "student-projects", "Student projects"),
+    (Path("~/Documents/website").expanduser(), "Systems Admin", "systems-admin", "Systems / admin"),
 )
+SCAN_ROOTS = tuple(root for root, _folder, _category, _label in PROJECT_ROOTS)
+ACTIVITY_WINDOW_DAYS = 90
 SKIP_DIRS = {
     ".git", ".cache", ".next", ".venv", "__pycache__", "build", "data",
     "dist", "node_modules", "target", "vendor", "venv",
@@ -182,6 +185,234 @@ def scan_root(root: Path) -> list[dict]:
             "behind": 0,
         })
     return sorted(rows, key=lambda row: (str(row["name"]).lower(), str(row["path"])))
+
+
+def _slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-") or "project"
+
+
+def _github_pushed_epoch(value: str) -> int:
+    if not value:
+        return 0
+    try:
+        return int(datetime.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
+
+
+def _root_activity(root: Path, github_activity: dict[str, str]) -> dict[str, dict[str, object]]:
+    immediate = {
+        path.name: path
+        for path in root.iterdir()
+        if path.is_dir() and not path.name.startswith(".")
+    } if root.is_dir() else {}
+    activity: dict[str, dict[str, object]] = {
+        name: {"epoch": 0, "source": ""} for name in immediate
+    }
+    for row in scan_root(root):
+        try:
+            first = Path(str(row.get("path", ""))).resolve().relative_to(root.resolve()).parts[0]
+        except (OSError, RuntimeError, ValueError, IndexError):
+            continue
+        if first not in activity:
+            continue
+        local_epoch = int(row.get("last_epoch") or 0)
+        repo = normalize_github_remote(str(row.get("remote", "")))
+        pushed_epoch = _github_pushed_epoch(github_activity.get(repo, ""))
+        candidate = max(local_epoch, pushed_epoch)
+        previous_epoch = activity[first].get("epoch", 0)
+        if not isinstance(previous_epoch, int):
+            previous_epoch = 0
+        if candidate > previous_epoch:
+            activity[first] = {
+                "epoch": candidate,
+                "source": "github-push" if pushed_epoch >= local_epoch and pushed_epoch else "local-commit",
+            }
+    return activity
+
+
+def _set_frontmatter_values(text: str, values: dict[str, object]) -> str:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("project note is missing frontmatter")
+    try:
+        end = next(index for index, line in enumerate(lines[1:], 1) if line.strip() == "---")
+    except StopIteration:
+        raise ValueError("project note has unclosed frontmatter") from None
+    positions: dict[str, int] = {}
+    for index in range(1, end):
+        key, separator, _value = lines[index].partition(":")
+        if separator:
+            positions[key.strip()] = index
+    insert_at = positions.get("updated", end)
+    for key, value in values.items():
+        rendered_value = (
+            value
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._/-]+", value)
+            else json.dumps(value, ensure_ascii=False) if isinstance(value, str) else str(value)
+        )
+        rendered = f"{key}: {rendered_value}"
+        if key in positions:
+            lines[positions[key]] = rendered
+            continue
+        lines.insert(insert_at, rendered)
+        for known, position in list(positions.items()):
+            if position >= insert_at:
+                positions[known] = position + 1
+        positions[key] = insert_at
+        insert_at += 1
+    return "\n".join(lines) + ("\n" if text.endswith("\n") else "")
+
+
+def _new_project_note(
+    *,
+    project_id: str,
+    category: str,
+    category_label: str,
+    folder: Path,
+    root: Path,
+    active: bool,
+    activity_date: str,
+    activity_source: str,
+    updated: str,
+) -> str:
+    status = "active" if active else "unreviewed"
+    direct_top = git(folder, ["rev-parse", "--show-toplevel"])
+    direct_git = bool(direct_top and Path(direct_top).resolve() == folder.resolve())
+    repo = normalize_github_remote(git(folder, ["remote", "get-url", "origin"])) if direct_git else ""
+    frontmatter = [
+        "---",
+        f"project_id: {project_id}",
+        f"project_category: {category}",
+        f"knowledge_status: {status}",
+        f"status: {status}",
+        "status_source: auto-activity-90-days",
+        "kanban_board: todos",
+        "machine: desktop",
+        f"local_path: {json.dumps(str(folder), ensure_ascii=False)}",
+        f"source_root: {json.dumps(str(root), ensure_ascii=False)}",
+        f"version_control: {'git' if direct_git else 'none'}",
+    ]
+    if repo:
+        frontmatter.append(f"github_repo: {json.dumps(repo)}")
+    frontmatter.extend([
+        f"activity_date: {json.dumps(activity_date)}",
+        f"activity_source: {json.dumps(activity_source)}",
+        f"updated: {json.dumps(updated)}",
+        "---",
+    ])
+    return "\n".join(frontmatter) + f"""
+
+# {folder.name}
+
+## Goal
+
+Maintain and advance **{folder.name}** as part of **{category_label}**.
+
+## Next action
+
+Review the current state of this project and record its next concrete action.
+
+## Blocker
+
+None recorded.
+
+## Source
+
+- Local folder: `{folder}`
+- Category rule: immediate subfolders of `{root}` → **{category_label}**
+"""
+
+
+def sync_project_notes(
+    *,
+    vault: Path = VAULT,
+    roots: tuple[tuple[Path, str, str, str], ...] = PROJECT_ROOTS,
+    now: datetime.datetime | None = None,
+    github_activity: dict[str, str] | None = None,
+    machine_folder: str = "Desktop",
+) -> dict[str, object]:
+    """Feed immediate local folders into Obsidian using the 90-day active rule."""
+    now = now or datetime.datetime.now().astimezone()
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    github_activity = collect_github() if github_activity is None else github_activity
+    cutoff = now - datetime.timedelta(days=ACTIVITY_WINDOW_DAYS)
+    summary = {"active": 0, "unreviewed": 0, "categories": {}}
+    base = vault / "Projects" / machine_folder
+    for root, folder_label, category, category_label in roots:
+        folders = sorted(
+            (path for path in root.iterdir() if path.is_dir() and not path.name.startswith(".")),
+            key=lambda path: path.name.lower(),
+        ) if root.is_dir() else []
+        activity = _root_activity(root, github_activity)
+        category_counts = {"total": len(folders), "active": 0, "unreviewed": 0}
+        target_dir = base / folder_label
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for folder in folders:
+            evidence = activity.get(folder.name, {"epoch": 0, "source": ""})
+            epoch_value = evidence.get("epoch", 0)
+            epoch = epoch_value if isinstance(epoch_value, int) else 0
+            observed = datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc) if epoch else None
+            active = bool(observed and observed >= cutoff.astimezone(datetime.timezone.utc))
+            status = "active" if active else "unreviewed"
+            activity_date = observed.date().isoformat() if observed else ""
+            project_id = f"{category}-{_slug(folder.name)}"
+            note = target_dir / f"{folder.name}.md"
+            if note.exists():
+                text = _set_frontmatter_values(note.read_text(encoding="utf-8"), {
+                    "project_id": project_id,
+                    "project_category": category,
+                    "knowledge_status": status,
+                    "status": status,
+                    "status_source": "auto-activity-90-days",
+                    "activity_date": activity_date,
+                    "activity_source": str(evidence.get("source", "")),
+                    "updated": now.date().isoformat(),
+                })
+            else:
+                text = _new_project_note(
+                    project_id=project_id,
+                    category=category,
+                    category_label=category_label,
+                    folder=folder,
+                    root=root,
+                    active=active,
+                    activity_date=activity_date,
+                    activity_source=str(evidence.get("source", "")),
+                    updated=now.date().isoformat(),
+                )
+            note.write_text(text, encoding="utf-8")
+            category_counts[status] += 1
+            summary[status] = int(summary[status]) + 1
+        summary["categories"][category] = category_counts
+    index = base / "Project Roots.md"
+    index.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for root, _folder_label, category, category_label in roots:
+        counts = summary["categories"][category]
+        rows.append(
+            f"| `{root}` | {category_label} | {counts['total']} | {counts['active']} | {counts['unreviewed']} |"
+        )
+    index.write_text(
+        "---\n"
+        "type: project-root-map\n"
+        f"machine: {machine_folder.lower()}\n"
+        f"activity_window_days: {ACTIVITY_WINDOW_DAYS}\n"
+        f"updated: {json.dumps(now.date().isoformat())}\n"
+        "---\n\n"
+        f"# {machine_folder} project roots\n\n"
+        "Immediate subfolders become canonical Obsidian project notes. Only projects with a local commit "
+        f"or GitHub push in the last {ACTIVITY_WINDOW_DAYS} days are automatically marked `active`; older "
+        "or undated projects remain `unreviewed`.\n\n"
+        f"Cutoff for this refresh: **{cutoff.date().isoformat()}**.\n\n"
+        "| Local root | Project category | Immediate projects | Active | Unreviewed |\n"
+        "|---|---|---:|---:|---:|\n"
+        + "\n".join(rows)
+        + "\n",
+        encoding="utf-8",
+    )
+    return summary
 
 
 def _frontmatter(path: Path) -> dict[str, str]:
@@ -550,12 +781,15 @@ def publish_observations() -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if arguments != ["--publish-observations"]:
-        print("Usage: refresh-todo-vault.py --publish-observations", file=sys.stderr)
-        return 2
     if not VAULT.is_dir():
         print(f"Vault not found: {VAULT}", file=sys.stderr)
         return 1
+    if not arguments:
+        sync_project_notes()
+        return 0
+    if arguments != ["--publish-observations"]:
+        print("Usage: refresh-todo-vault.py [--publish-observations]", file=sys.stderr)
+        return 2
     target = publish_observations()
     print(f"Wrote {target.relative_to(VAULT)} for {MACHINE}.")
     return 0

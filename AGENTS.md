@@ -63,6 +63,12 @@ Rules that go with the table:
   reverts it and `scripts/reapply-desktop-patch.sh` has to reconcile it back.
   Keep patches tiny and generic. Keep `apps/desktop/index.html` out of them.
   If a change can be a plugin, it is a plugin.
+- **Patches are temporary; native always wins.** Every `patches/*.patch` is a
+  stopgap until Hermes ships the feature natively. After an update, run the
+  stock build first. When a patch conflicts with new upstream code, adapt the
+  patch to the native implementation — never force our old version over it —
+  and drop any hunk upstream has made redundant. Reapplying a patch after an
+  update is a deliberate decision, not an automatic step.
 - Anything installable goes through `install.sh`. One installer, idempotent,
   honouring `HERMES_HOME` / `HERMES_SOURCE_DIR`. New surfaces are **opt-in via a
   flag** (see `--enable-project-kanban`) unless the user asks for them on by
@@ -151,3 +157,36 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 - [ ] `install.sh` covers anything installable, and is idempotent.
 - [ ] `README.md` reflects the change.
 - [ ] No secrets. Nothing committed or pushed unasked.
+
+## 7. Patch status vs native Hermes
+
+Last verified 2026-08-28 against Hermes `00bbfc690`. Re-verify after any
+Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
+means the tree is unpatched and the patch is still needed; `git apply --check
+--reverse` succeeding means it is applied. When a feature lands natively,
+delete its section from the patch and update this table.
+
+`patches/terminal-theme-fields.patch` — **still needed.**
+`_normalise_theme_definition` in `hermes_cli/web_server.py` still strips
+`terminalBackground` / `terminalForeground` from dashboard theme data.
+
+`patches/desktop-research-workflow.patch` — **still needed**, every remaining
+section:
+
+| Feature in patch | Native status |
+|---|---|
+| Five-project sidebar fold (`foldProjectOverview` + show-more footer) | Absent upstream |
+| Sidebar icon sizing tweak (`size-4` → `size-5`) | Absent |
+| Profile-switch StrictMode fix (`use-on-profile-switch.ts` + test) | Absent — first-effect ref bug still upstream |
+| Folded live tool runs (ticker removal in `fallback.tsx` + tests) | Absent — `run-ticker.tsx` still wired in |
+| Narrower sash grab band (`tree-split.tsx`) | Absent — still 8px |
+| Reasoning collapsed by default (`reasoning-disclosure.ts`) | Absent — default still `false` |
+| Terminal theme fields in `web_server.py` (+ test) | Absent — duplicate of `terminal-theme-fields.patch` |
+
+Removed from the patch because native Hermes covers the need:
+
+| Former feature | Why removed |
+|---|---|
+| Context-usage ring, always visible | Native meter + panel exist; text-based, hidden by default — enable per machine via status-bar right-click |
+| `desktop_*` skin color overrides (`skin.ts`) | Native cross-surface skin SDK loads Light Lab; the yaml's `desktop_*` keys are ignored, surfaces derive from base colors |
+| Three-line composer min-height (`styles.css`) | Dropped by choice; native one-line composer grows as you type |

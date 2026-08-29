@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import importlib.util
 import json
 import os
@@ -33,6 +34,78 @@ class RefreshTodoVaultTest(unittest.TestCase):
                 value = module.local_setting("TODO_MACHINE", env)
 
         self.assertEqual(value, "MacLaptop-new")
+
+    def test_sync_project_notes_marks_only_recent_immediate_folders_active(self):
+        module = load_script()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            vault = root / "vault"
+            source = root / "projects"
+            recent = source / "Recent Study"
+            old = source / "Old Study"
+            nested = recent / "nested-repo"
+            old.mkdir(parents=True)
+            nested.mkdir(parents=True)
+            existing = vault / "Projects" / "Desktop" / "Main Research" / "Recent Study.md"
+            existing.parent.mkdir(parents=True)
+            existing.write_text(
+                "---\nproject_id: main-research-recent-study\n"
+                "project_category: main-research\nknowledge_status: unreviewed\n"
+                "status: unreviewed\n---\n# Recent Study\n\n"
+                "## Goal\nKeep this human-authored goal.\n\n"
+                "## Next action\nReview results.\n\n## Blocker\nNone.\n",
+                encoding="utf-8",
+            )
+            now = datetime.datetime(2026, 8, 25, 8, tzinfo=datetime.timezone.utc)
+            rows = [
+                {
+                    "name": "nested-repo",
+                    "path": str(nested),
+                    "version_control": "git",
+                    "remote": "git@github.com:jyanglab/recent.git",
+                    "last_epoch": int((now - datetime.timedelta(days=10)).timestamp()),
+                },
+                {
+                    "name": "Old Study",
+                    "path": str(old),
+                    "version_control": "none",
+                    "remote": "",
+                    "last_epoch": int((now - datetime.timedelta(days=91)).timestamp()),
+                },
+            ]
+            roots = ((source, "Main Research", "main-research", "Main research"),)
+            with patch.object(module, "scan_root", return_value=rows):
+                result = module.sync_project_notes(
+                    vault=vault,
+                    roots=roots,
+                    now=now,
+                    github_activity={},
+                    machine_folder="Desktop",
+                )
+
+            recent_text = existing.read_text(encoding="utf-8")
+            old_text = (vault / "Projects" / "Desktop" / "Main Research" / "Old Study.md").read_text(encoding="utf-8")
+            index_text = (vault / "Projects" / "Desktop" / "Project Roots.md").read_text(encoding="utf-8")
+
+        self.assertEqual(result["active"], 1)
+        self.assertEqual(result["unreviewed"], 1)
+        self.assertIn("knowledge_status: active", recent_text)
+        self.assertIn("Keep this human-authored goal.", recent_text)
+        self.assertIn("knowledge_status: unreviewed", old_text)
+        self.assertIn("project_id: main-research-old-study", old_text)
+        self.assertIn("activity_window_days: 90", index_text)
+
+    def test_default_mode_syncs_project_notes_without_publishing(self):
+        module = load_script()
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            module, "VAULT", Path(directory)
+        ), patch.object(
+            module, "sync_project_notes", return_value={"active": 0}
+        ) as sync, patch.object(module, "publish_observations") as publish:
+            self.assertEqual(module.main([]), 0)
+
+        sync.assert_called_once()
+        publish.assert_not_called()
 
     def test_normalize_github_remote_supports_https_and_ssh(self):
         module = load_script()
@@ -352,7 +425,9 @@ class RefreshTodoVaultTest(unittest.TestCase):
                     module.subprocess.CompletedProcess([], 0, stdout="base-oid\n"),
                     module.subprocess.CompletedProcess([], 0),
                 ]
-                with patch.object(module, "_publication_state", return_value=state), patch.object(
+                with patch.object(module, "MACHINE", "MacLaptop-new"), patch.object(
+                    module, "_publication_state", return_value=state
+                ), patch.object(
                     module, "_validate_observation_commit"
                 ):
                     result = module.publish_observations()
@@ -421,7 +496,8 @@ class RefreshTodoVaultTest(unittest.TestCase):
                     ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
                 ).stdout.strip()
 
-            git("init", "--bare", "--initial-branch=main", str(remote))
+            git("init", "--bare", str(remote))
+            git("symbolic-ref", "HEAD", "refs/heads/main", cwd=remote)
             git("clone", str(remote), str(vault))
             git("config", "user.name", "Test", cwd=vault)
             git("config", "user.email", "test@example.invalid", cwd=vault)
@@ -455,7 +531,8 @@ class RefreshTodoVaultTest(unittest.TestCase):
                     ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
                 ).stdout.strip()
 
-            git("init", "--bare", "--initial-branch=main", str(remote))
+            git("init", "--bare", str(remote))
+            git("symbolic-ref", "HEAD", "refs/heads/main", cwd=remote)
             git("clone", str(remote), str(vault))
             git("config", "user.name", "Test", cwd=vault)
             git("config", "user.email", "test@example.invalid", cwd=vault)
@@ -487,7 +564,8 @@ class RefreshTodoVaultTest(unittest.TestCase):
                     ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
                 ).stdout.strip()
 
-            git("init", "--bare", "--initial-branch=main", str(remote))
+            git("init", "--bare", str(remote))
+            git("symbolic-ref", "HEAD", "refs/heads/main", cwd=remote)
             git("clone", str(remote), str(vault))
             git("config", "user.name", "Test", cwd=vault)
             git("config", "user.email", "test@example.invalid", cwd=vault)

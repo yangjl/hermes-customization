@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Inbox — click-to-edit sketch (disposable MVP)</title>
+<style>
+  :root{
+    color-scheme:light;
+    --bg:#f6f6f6;--surface:#fff;--panel:#fafafa;--text:#262626;--muted:#666;--quiet:#8a8a8a;
+    --border:#d7d7d7;--strong:#c3c3c3;--accent:#0875c1;--accent-soft:#e6f3fc;
+    --green:#16825d;--green-soft:#e7f5ef;--orange:#a65f00;--orange-soft:#fff1dc;
+    --purple:#7456a8;--purple-soft:#f0eafb;--red:#b83a3a;--red-soft:#fbe9e9;
+    --shadow:0 14px 34px rgba(0,0,0,.15)
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+  button,input,textarea,select{font:inherit}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 18px 60px}
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+  .page-head h1{margin:0;font-size:19px;letter-spacing:-.015em}
+  .page-head p{margin:4px 0 0;color:var(--muted);font-size:11.5px;max-width:480px}
+  .fixture{flex:none;border:1px solid #9ec7e3;border-radius:999px;background:var(--accent-soft);padding:4px 9px;color:#075e99;font-size:9px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+  .section-label{margin:22px 0 8px;color:var(--quiet);font-size:10px;font-weight:750;letter-spacing:.07em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+  .section-label .n{border-radius:999px;background:#e2e2e2;padding:1px 7px;color:var(--quiet);font-weight:700}
+
+  /* ---- compact candidate rows ---- */
+  .rows{display:grid;gap:7px}
+  .row{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:8px 10px;box-shadow:0 1px 1px rgba(0,0,0,.03)}
+  .row-top{display:flex;align-items:center;gap:8px}
+  .row-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:0;background:transparent;padding:2px 0;text-align:left;font-weight:660;cursor:pointer;color:var(--text)}
+  .row-title:hover{text-decoration:underline;color:var(--accent)}
+  .stage-pill{flex:none;border-radius:4px;padding:2px 6px;font-size:9px;font-weight:740;text-transform:uppercase}
+  .stage-pill.captured{background:var(--blue-soft,#e8f3fc);color:#17649b}
+  .stage-pill.suggested{background:var(--orange-soft);color:var(--orange)}
+  .source-tag{flex:none;color:var(--quiet);font-size:10px}
+  .row-sub{margin-top:3px;overflow:hidden;color:var(--muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap;padding-left:0}
+  .row.open{padding-bottom:10px}
+
+  /* ---- inline editor (opens on click, still same row = compact) ---- */
+  .editor{margin-top:9px;border-top:1px solid #ececec;padding-top:9px;display:grid;gap:8px}
+  .field-line{display:grid;grid-template-columns:78px minmax(0,1fr);align-items:center;gap:8px}
+  .field-line label{color:var(--quiet);font-size:10px;font-weight:700;text-transform:uppercase}
+  .control{min-width:0;height:30px;border:1px solid var(--border);border-radius:6px;background:#fff;padding:0 8px}
+  textarea.control{height:auto;min-height:52px;padding:6px 8px;resize:vertical}
+
+  .ai-box{border:1px dashed #b9a4dd;border-radius:7px;background:var(--purple-soft);padding:8px 9px}
+  .ai-box-head{display:flex;align-items:center;justify-content:between;gap:6px;font-size:10px;font-weight:750;color:#654592;text-transform:uppercase;letter-spacing:.04em}
+  .ai-box-head .spark{font-size:11px}
+  .ai-suggest-btn{margin-left:auto;border:1px solid #b9a4dd;border-radius:6px;background:#fff;padding:4px 9px;font-size:11px;font-weight:650;color:#654592;cursor:pointer}
+  .ai-suggest-btn:hover{background:#f4eefa}
+  .ai-result{margin-top:8px;border:1px solid #cdb8ea;border-radius:6px;background:#fff;padding:8px}
+  .ai-result .label{color:var(--quiet);font-size:9px;font-weight:750;text-transform:uppercase}
+  .ai-result .proposed{margin-top:3px;font-weight:650}
+  .ai-result .reason{margin-top:2px;color:var(--muted);font-size:11px}
+  .ai-actions{display:flex;gap:6px;margin-top:8px}
+  .ai-actions button{border-radius:6px;padding:5px 9px;font-size:11px;font-weight:650;cursor:pointer}
+  .btn-apply{border:1px solid #0769aa;background:var(--accent);color:#fff}
+  .btn-apply:hover{background:#0668aa}
+  .btn-discard{border:1px solid var(--strong);background:#fff;color:var(--muted)}
+  .ai-note{margin-top:6px;color:#654592;font-size:9.5px}
+  .hidden{display:none !important}
+
+  .row-actions{display:flex;gap:6px;justify-content:flex-end}
+  .row-actions button{border-radius:6px;padding:6px 11px;font-size:11.5px;font-weight:650;cursor:pointer}
+  .btn-save{border:1px solid var(--strong);background:#fff;color:var(--text)}
+  .btn-save:hover{background:#f1f1f1}
+  .btn-accept{border:1px solid #16825d;background:var(--green);color:#fff}
+  .btn-accept:hover{background:#136f4e}
+  .btn-dismiss{border:1px solid var(--strong);background:#fff;color:var(--red)}
+  .btn-dismiss:hover{background:var(--red-soft)}
+  .save-flash{margin-left:auto;align-self:center;color:var(--green);font-size:10.5px;font-weight:650;opacity:0;transition:opacity .2s}
+  .save-flash.show{opacity:1}
+
+  /* ---- Achieved (folded) ---- */
+  .achieved{border:1px solid var(--border);border-radius:8px;background:var(--panel);overflow:hidden}
+  .achieved-head{display:flex;width:100%;align-items:center;gap:8px;border:0;background:transparent;padding:10px 12px;cursor:pointer;text-align:left}
+  .achieved-head:hover{background:#f0f0f0}
+  .achieved-head .chev{color:var(--quiet);font-size:11px;transition:transform .15s}
+  .achieved.open .chev{transform:rotate(90deg)}
+  .achieved-head strong{font-size:12px}
+  .achieved-head .n{margin-left:2px;border-radius:999px;background:#e2e2e2;padding:1px 7px;color:var(--quiet);font-size:10px}
+  .achieved-body{display:none;border-top:1px solid var(--border);padding:8px 12px 10px}
+  .achieved.open .achieved-body{display:block}
+  .achieved-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #ececec}
+  .achieved-row:last-child{border-bottom:0}
+  .achieved-row .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .outcome-pill{flex:none;border-radius:4px;padding:2px 6px;font-size:9px;font-weight:740;text-transform:uppercase}
+  .outcome-pill.accepted{background:var(--green-soft);color:var(--green)}
+  .outcome-pill.dismissed{background:var(--red-soft);color:var(--red)}
+  .achieved-row .when{flex:none;color:var(--quiet);font-size:10px}
+
+  .toast{position:fixed;z-index:20;right:18px;bottom:16px;max-width:340px;transform:translateY(16px);border-radius:7px;background:#2d2d2d;padding:9px 12px;color:#fff;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:.18s;font-size:11.5px}
+  .toast.show{transform:translateY(0);opacity:1}
+
+  .note{margin-top:26px;border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 11px;color:#365f7b;font-size:10.5px;border-radius:0 6px 6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Office Inbox</h1>
+      <p>PK-002 sketch: compact rows, click-to-edit, AI-assisted revision (suggestion only), and three distinct actions — Save / Accept / Dismiss.</p>
+    </div>
+    <span class="fixture">Synthetic fixture — disposable sketch</span>
+  </div>
+
+  <div class="section-label">Active candidates <span class="n" id="active-count">2</span></div>
+  <div class="rows" id="active-rows">
+
+    <!-- Candidate 1: a fresh capture, closed by default -->
+    <div class="row" data-row="captured">
+      <div class="row-top">
+        <button class="row-title" data-toggle="captured">Reply to Maya about the draft figures</button>
+        <span class="stage-pill captured">Captured</span>
+        <span class="source-tag">email</span>
+      </div>
+      <div class="row-sub">Direct request with a deliverable · captured 2h ago</div>
+
+      <div class="editor hidden" data-editor="captured">
+        <div class="field-line">
+          <label for="title-captured">Title</label>
+          <input class="control" id="title-captured" value="Reply to Maya about the draft figures">
+        </div>
+        <div class="field-line">
+          <label for="project-captured">Project</label>
+          <select class="control" id="project-captured">
+            <option selected>research — Main Research</option>
+            <option>jyanglab.com — Systems / admin</option>
+            <option>student — Student Projects</option>
+          </select>
+        </div>
+        <div class="field-line">
+          <label>Notes</label>
+          <textarea class="control">Maya asked for feedback on the GWAS draft figures before Friday's lab meeting.</textarea>
+        </div>
+
+        <div class="ai-box">
+          <div class="ai-box-head"><span class="spark">✦</span> AI-assisted revision
+            <button class="ai-suggest-btn" data-ai-suggest="captured">Suggest revision</button>
+          </div>
+          <div class="ai-result hidden" data-ai-result="captured">
+            <div class="label">Proposed title</div>
+            <div class="proposed">Reply to Maya: GWAS draft figure feedback (due Fri)</div>
+            <div class="label" style="margin-top:6px">Proposed project</div>
+            <div class="proposed">research — Main Research</div>
+            <div class="reason">Reason: message mentions a Friday deadline and figure feedback; project inferred from sender's prior thread.</div>
+            <div class="ai-actions">
+              <button class="btn-apply" data-ai-apply="captured">Apply to fields</button>
+              <button class="btn-discard" data-ai-discard="captured">Discard suggestion</button>
+            </div>
+            <div class="ai-note">AI output is a suggestion only. It fills the editor fields above — it cannot Save, Accept, Dismiss, or promote the item by itself. A human must still press Save or Accept.</div>
+          </div>
+        </div>
+
+        <div class="row-actions">
+          <span class="save-flash" data-flash="captured">Saved — kept in Inbox</span>
+          <button class="btn-dismiss" data-dismiss="captured">Dismiss</button>
+          <button class="btn-save" data-save="captured">Save</button>
+          <button class="btn-accept" data-accept="captured">Accept</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Candidate 2: legacy suggestion (pre-existing style, open by default to show editor at rest) -->
+    <div class="row open" data-row="legacy">
+      <div class="row-top">
+        <button class="row-title" data-toggle="legacy">Follow up on sequencing quote</button>
+        <span class="stage-pill suggested">Legacy suggestion</span>
+        <span class="source-tag">slack</span>
+      </div>
+      <div class="row-sub">Vendor mentioned pricing expires end of month · captured 3d ago</div>
+
+      <div class="editor" data-editor="legacy">
+        <div class="field-line">
+          <label for="title-legacy">Title</label>
+          <input class="control" id="title-legacy" value="Follow up on sequencing quote">
+        </div>
+        <div class="field-line">
+          <label for="project-legacy">Project</label>
+          <select class="control" id="project-legacy">
+            <option>research — Main Research</option>
+            <option selected>jyanglab.com — Systems / admin</option>
+            <option>student — Student Projects</option>
+          </select>
+        </div>
+        <div class="field-line">
+          <label>Notes</label>
+          <textarea class="control">Quote expires end of month; needs a decision before then.</textarea>
+        </div>
+
+        <div class="ai-box">
+          <div class="ai-box-head"><span class="spark">✦</span> AI-assisted revision
+            <button class="ai-suggest-btn" data-ai-suggest="legacy">Suggest revision</button>
+          </div>
+          <div class="ai-result hidden" data-ai-result="legacy">
+            <div class="label">Proposed title</div>
+            <div class="proposed">Decide on sequencing vendor quote before month-end</div>
+            <div class="label" style="margin-top:6px">Proposed project</div>
+            <div class="proposed">jyanglab.com — Systems / admin</div>
+            <div class="reason">Reason: framed as a pending decision with a deadline, not a passive follow-up.</div>
+            <div class="ai-actions">
+              <button class="btn-apply" data-ai-apply="legacy">Apply to fields</button>
+              <button class="btn-discard" data-ai-discard="legacy">Discard suggestion</button>
+            </div>
+            <div class="ai-note">AI output is a suggestion only. It fills the editor fields above — it cannot Save, Accept, Dismiss, or promote the item by itself. A human must still press Save or Accept.</div>
+          </div>
+        </div>
+
+        <div class="row-actions">
+          <span class="save-flash" data-flash="legacy">Saved — kept in Inbox</span>
+          <button class="btn-dismiss" data-dismiss="legacy">Dismiss</button>
+          <button class="btn-save" data-save="legacy">Save</button>
+          <button class="btn-accept" data-accept="legacy">Accept</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-label">Achieved</div>
+  <div class="achieved" id="achieved">
+    <button class="achieved-head" id="achieved-toggle">
+      <span class="chev">▶</span>
+      <strong>Achieved</strong>
+      <span class="n">3</span>
+      <span style="margin-left:auto;color:var(--quiet);font-size:10.5px">folded by default · accepted &amp; dismissed history</span>
+    </button>
+    <div class="achieved-body">
+      <div class="achieved-row">
+        <span class="outcome-pill accepted">Accepted</span>
+        <span class="t">Draft maize grant aims — promoted to research / Doing</span>
+        <span class="when">yesterday</span>
+      </div>
+      <div class="achieved-row">
+        <span class="outcome-pill dismissed">Dismissed</span>
+        <span class="t">Newsletter: unrelated conference CFP</span>
+        <span class="when">2d ago</span>
+      </div>
+      <div class="achieved-row">
+        <span class="outcome-pill accepted">Accepted</span>
+        <span class="t">Renew jyanglab.com domain — promoted to jyanglab.com / Next</span>
+        <span class="when">5d ago</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    This sketch is disposable and standalone: local CSS/JS only, no imports from <code>plugin.js</code> or <code>plugin_api.py</code>, no network. It demonstrates PK-002's approved requirements only — Board-completed tasks are untouched, and the folded Achieved group applies to Office Inbox only.
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // Click-to-edit: clicking the row title opens the editor (already-open rows just stay open).
+  document.querySelectorAll('[data-toggle]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-toggle');
+      var row = document.querySelector('[data-row="' + key + '"]');
+      var editor = document.querySelector('[data-editor="' + key + '"]');
+      var opening = editor.classList.contains('hidden');
+      editor.classList.toggle('hidden');
+      row.classList.toggle('open', opening);
+    });
+  });
+
+  function showToast(msg) {
+    var toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(function () { toast.classList.remove('show'); }, 1800);
+  }
+
+  // Save: distinct from Accept — keeps the candidate in the Inbox with edited fields.
+  document.querySelectorAll('[data-save]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-save');
+      var title = document.getElementById('title-' + key).value;
+      document.querySelector('[data-toggle="' + key + '"]').textContent = title;
+      var flash = document.querySelector('[data-flash="' + key + '"]');
+      flash.classList.add('show');
+      setTimeout(function () { flash.classList.remove('show'); }, 1600);
+      showToast('Saved — candidate remains in Office Inbox for later review');
+    });
+  });
+
+  // Accept: promotes to the Board (fixture-only — moves the row into Achieved).
+  document.querySelectorAll('[data-accept]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-accept');
+      moveToAchieved(key, 'accepted', 'promoted to Board');
+      showToast('Accepted — promoted to Board and moved to Achieved');
+    });
+  });
+
+  // Dismiss: also folds into Achieved, distinct outcome pill.
+  document.querySelectorAll('[data-dismiss]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-dismiss');
+      moveToAchieved(key, 'dismissed', 'dismissed');
+      showToast('Dismissed — moved to Achieved');
+    });
+  });
+
+  function moveToAchieved(key, outcome, label) {
+    var row = document.querySelector('[data-row="' + key + '"]');
+    var title = document.querySelector('[data-toggle="' + key + '"]').textContent;
+    if (!row) return;
+    row.remove();
+
+    var body = document.querySelector('.achieved-body');
+    var entry = document.createElement('div');
+    entry.className = 'achieved-row';
+    entry.innerHTML =
+      '<span class="outcome-pill ' + outcome + '">' + (outcome === 'accepted' ? 'Accepted' : 'Dismissed') + '</span>' +
+      '<span class="t">' + title + ' — ' + label + '</span>' +
+      '<span class="when">just now</span>';
+    body.insertBefore(entry, body.firstChild);
+
+    var achievedCount = document.querySelector('.achieved-head .n');
+    achievedCount.textContent = String(parseInt(achievedCount.textContent, 10) + 1);
+
+    var activeCount = document.getElementById('active-count');
+    activeCount.textContent = String(Math.max(0, parseInt(activeCount.textContent, 10) - 1));
+
+    // Auto-expand Achieved once so the moved item is visible for this demo pass.
+    document.getElementById('achieved').classList.add('open');
+  }
+
+  // AI-assisted revision: fills a proposal box; only "Apply to fields" copies it into the
+  // editable inputs, and even then nothing is saved/accepted/dismissed until a human
+  // presses one of the three real actions below.
+  document.querySelectorAll('[data-ai-suggest]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-ai-suggest');
+      document.querySelector('[data-ai-result="' + key + '"]').classList.remove('hidden');
+    });
+  });
+  document.querySelectorAll('[data-ai-discard]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-ai-discard');
+      document.querySelector('[data-ai-result="' + key + '"]').classList.add('hidden');
+    });
+  });
+  document.querySelectorAll('[data-ai-apply]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var key = btn.getAttribute('data-ai-apply');
+      var proposed = document.querySelector('[data-ai-result="' + key + '"] .proposed').textContent;
+      document.getElementById('title-' + key).value = proposed;
+      document.querySelector('[data-ai-result="' + key + '"]').classList.add('hidden');
+      showToast('Suggestion applied to the editor — press Save or Accept to confirm');
+    });
+  });
+
+  // Fold/unfold Achieved.
+  document.getElementById('achieved-toggle').addEventListener('click', function () {
+    document.getElementById('achieved').classList.toggle('open');
+  });
+</script>
+</body>
+</html>

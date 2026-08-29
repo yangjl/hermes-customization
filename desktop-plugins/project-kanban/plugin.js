@@ -272,38 +272,184 @@ function ActionForm({ onClose, mutate, projects }) {
   })
 }
 
-function InboxCard({ task, mutate, projects }) {
-  const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(task.suggested_title || task.title)
-  const [projectId, setProjectId] = useState(projects[0]?.project_id || '')
-  const accept = async event => {
-    event.preventDefault()
-    if (!projectId) return
+const stagePillMeta = {
+  captured: { label: 'Captured', token: '--ui-blue' },
+  suggested: { label: 'Legacy suggestion', token: '--ui-orange' }
+}
+
+function relativeTime(at) {
+  const seconds = Math.max(0, Math.floor((Date.now() - at) / 1000))
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+// Static, fixture-derived revision proposal — reuses the backend's existing
+// keyword heuristic (`_suggestion` in plugin_api.py, already shipped on every
+// task view as suggested_category/suggestion_reason), never a model call.
+// Ships the propose -> apply-to-fields-only -> human-confirms interaction
+// contract so a real suggester can replace this function later without a UI
+// rework (see PK-002 plan, Non-goals).
+function suggestRevision(task, projects) {
+  const match = projects.find(item => item.category === task.suggested_category)
+  return {
+    title: task.title,
+    projectId: match ? match.project_id : (projects[0]?.project_id || ''),
+    projectLabel: match ? match.title : 'No canonical project match',
+    reason: task.suggestion_reason || 'No additional signal available; review before accepting.'
+  }
+}
+
+function InboxCard({ task, stage, mutate, projects, onAchieved }) {
+  const [open, setOpen] = useState(false)
+  const [title, setTitle] = useState(task.title)
+  const [projectId, setProjectId] = useState(task.project_id || projects[0]?.project_id || '')
+  const [notes, setNotes] = useState(task.body || '')
+  const [flash, setFlash] = useState(false)
+  const [suggestion, setSuggestion] = useState(null)
+  const pill = stagePillMeta[stage] || stagePillMeta.captured
+
+  const save = async () => {
+    if (!title.trim()) return
+    await mutate.mutateAsync({ path: `/inbox/${task.id}`, method: 'PATCH', body: { title, project_id: projectId, details: notes } })
+    setFlash(true)
+    setTimeout(() => setFlash(false), 1600)
+  }
+  const accept = async () => {
+    if (!projectId || !title.trim()) return
     await mutate.mutateAsync({ path: `/inbox/${task.id}/accept`, body: { title, project_id: projectId } })
-    setEditing(false)
+    onAchieved({ id: task.id, title, outcome: 'accepted' })
   }
-  if (editing) {
-    return jsxs('form', {
-      onSubmit: accept,
-      className: 'rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) p-3',
-      children: [
-        jsx('input', { value: title, onChange: event => setTitle(event.target.value), 'aria-label': 'Accepted task title', className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm' }),
-        jsxs('div', { className: 'mt-2 flex flex-wrap items-center gap-2', children: [
-          jsx('select', { value: projectId, onChange: event => setProjectId(event.target.value), 'aria-label': 'Accepted task project', className: 'min-w-40 flex-1 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm', children: projects.map(item => jsx('option', { value: item.project_id, children: item.title }, item.project_id)) }),
-          jsx(Button, { type: 'submit', disabled: mutate.isPending || !title.trim() || !projectId, children: 'Accept' }),
-          jsx(Button, { type: 'button', variant: 'ghost', onClick: () => setEditing(false), children: 'Cancel' })
-        ] })
-      ]
-    })
+  const dismiss = async () => {
+    await mutate.mutateAsync({ path: `/inbox/${task.id}`, method: 'DELETE' })
+    onAchieved({ id: task.id, title, outcome: 'dismissed' })
   }
+  const suggest = () => setSuggestion(suggestRevision(task, projects))
+  const applySuggestion = () => {
+    if (!suggestion) return
+    setTitle(suggestion.title)
+    setProjectId(suggestion.projectId)
+    setSuggestion(null)
+  }
+  const discardSuggestion = () => setSuggestion(null)
+
   return jsxs('article', {
-    className: 'rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) p-3',
+    className: `rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-chat-surface-background) p-3 ${open ? 'pb-2.5' : ''}`,
     children: [
-      jsxs('div', { className: 'flex items-start gap-2', children: [jsx(Codicon, { name: sourceIcons[task.source] || 'inbox' }), jsxs('div', { className: 'min-w-0 flex-1', children: [jsx('div', { className: 'text-sm font-medium', children: task.title }), task.reason ? jsx('div', { className: 'mt-1 text-xs text-(--ui-text-secondary)', children: task.reason }) : null, task.suggestion_reason ? jsxs('div', { className: 'mt-1 flex items-start gap-1 text-[11px] text-(--ui-text-tertiary)', children: [jsx(Codicon, { name: 'sparkle' }), task.suggestion_reason] }) : null] })] }),
-      jsxs('div', { className: 'mt-2 flex justify-end gap-1', children: [
-        jsx(IconButton, { icon: 'check', label: `Review and accept ${task.title}`, onClick: () => setEditing(true) }),
-        jsx(IconButton, { icon: 'trash', label: `Dismiss ${task.title}`, disabled: mutate.isPending, onClick: () => mutate.mutate({ path: `/inbox/${task.id}`, method: 'DELETE' }) })
-      ] })
+      jsxs('div', {
+        className: 'flex items-center gap-2',
+        children: [
+          jsx('button', {
+            type: 'button',
+            onClick: () => setOpen(value => !value),
+            'aria-label': `${open ? 'Collapse' : 'Edit'} ${task.title}`,
+            className: 'min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline',
+            children: task.title
+          }),
+          jsx('span', {
+            className: 'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+            style: { background: tint(pill.token, 16), color: ink(pill.token) },
+            children: pill.label
+          }),
+          jsxs('span', {
+            className: 'shrink-0 flex items-center gap-1 text-[10px] text-(--ui-text-tertiary)',
+            children: [jsx(Codicon, { name: sourceIcons[task.source] || 'inbox' }), task.source]
+          })
+        ]
+      }),
+      !open && (task.reason || task.suggestion_reason) ? jsx('div', {
+        className: 'mt-1 truncate text-xs text-(--ui-text-secondary)',
+        children: task.reason || task.suggestion_reason
+      }) : null,
+      open ? jsxs('div', {
+        className: 'mt-2.5 grid gap-2 border-t border-(--ui-stroke-secondary) pt-2.5',
+        children: [
+          jsxs('label', { className: 'grid gap-1', children: [
+            jsx('span', { className: 'text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Title' }),
+            jsx('input', { value: title, onChange: event => setTitle(event.target.value), 'aria-label': 'Inbox candidate title', className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm' })
+          ] }),
+          jsxs('label', { className: 'grid gap-1', children: [
+            jsx('span', { className: 'text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Project' }),
+            jsx('select', { value: projectId, onChange: event => setProjectId(event.target.value), 'aria-label': 'Inbox candidate project', className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm', children: projects.map(item => jsx('option', { value: item.project_id, children: item.title }, item.project_id)) })
+          ] }),
+          jsxs('label', { className: 'grid gap-1', children: [
+            jsx('span', { className: 'text-[10px] font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Notes' }),
+            jsx('textarea', { value: notes, onChange: event => setNotes(event.target.value), 'aria-label': 'Inbox candidate notes', rows: 2, className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-editor) px-3 py-2 text-sm' })
+          ] }),
+          jsxs('div', {
+            className: 'rounded-md border border-dashed p-2',
+            style: { borderColor: tint('--ui-purple', 45), background: tint('--ui-purple', 8) },
+            children: [
+              jsxs('div', { className: 'flex items-center gap-2 text-[10px] font-bold uppercase tracking-wide', style: { color: ink('--ui-purple') }, children: [
+                jsx(Codicon, { name: 'sparkle' }),
+                'AI-assisted revision',
+                jsx(Button, { variant: 'ghost', className: 'ml-auto', onClick: suggest, children: 'Suggest revision' })
+              ] }),
+              suggestion ? jsxs('div', {
+                className: 'mt-2 rounded-md border p-2 text-xs',
+                style: { borderColor: tint('--ui-purple', 30) },
+                children: [
+                  jsx('div', { className: 'text-[9px] font-bold uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Proposed title' }),
+                  jsx('div', { className: 'font-medium', children: suggestion.title }),
+                  jsx('div', { className: 'mt-1.5 text-[9px] font-bold uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Proposed project' }),
+                  jsx('div', { className: 'font-medium', children: suggestion.projectLabel }),
+                  jsx('div', { className: 'mt-1 text-(--ui-text-secondary)', children: `Reason: ${suggestion.reason}` }),
+                  jsxs('div', { className: 'mt-2 flex gap-1.5', children: [
+                    jsx(Button, { onClick: applySuggestion, children: 'Apply to fields' }),
+                    jsx(Button, { variant: 'ghost', onClick: discardSuggestion, children: 'Discard suggestion' })
+                  ] }),
+                  jsx('div', { className: 'mt-1.5 text-[9.5px]', style: { color: ink('--ui-purple') }, children: 'AI output is a suggestion only. It cannot Save, Accept, Dismiss, or promote the item by itself. A human must still press Save or Accept.' })
+                ]
+              }) : null
+            ]
+          }),
+          jsxs('div', { className: 'flex items-center justify-end gap-1.5', children: [
+            flash ? jsx('span', { className: 'mr-auto text-[10.5px] font-medium', style: { color: ink('--ui-green') }, children: 'Saved — kept in Inbox' }) : null,
+            jsx(Button, { variant: 'ghost', disabled: mutate.isPending, onClick: dismiss, children: 'Dismiss' }),
+            jsx(Button, { variant: 'secondary', disabled: mutate.isPending || !title.trim(), onClick: save, children: 'Save' }),
+            jsx(Button, { disabled: mutate.isPending || !title.trim() || !projectId, onClick: accept, children: 'Accept' })
+          ] })
+        ]
+      }) : null
+    ]
+  })
+}
+
+function AchievedRow({ entry }) {
+  const outcomeToken = entry.outcome === 'accepted' ? '--ui-green' : '--ui-red'
+  return jsxs('div', {
+    className: 'flex items-center gap-2 border-b border-(--ui-stroke-secondary) py-1.5 text-xs last:border-b-0',
+    children: [
+      jsx('span', {
+        className: 'shrink-0 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+        style: { background: tint(outcomeToken, 16), color: ink(outcomeToken) },
+        children: entry.outcome === 'accepted' ? 'Accepted' : 'Dismissed'
+      }),
+      jsx('span', { className: 'min-w-0 flex-1 truncate text-(--ui-text-secondary)', children: entry.title }),
+      jsx('span', { className: 'shrink-0 text-[10px] text-(--ui-text-tertiary)', children: relativeTime(entry.at) })
+    ]
+  })
+}
+
+function AchievedSection({ achieved, open, onToggle }) {
+  return jsxs('section', {
+    className: 'overflow-hidden rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-quinary)',
+    children: [
+      jsxs('button', {
+        type: 'button',
+        onClick: onToggle,
+        className: 'flex w-full items-center gap-2 px-3 py-2.5 text-left',
+        children: [
+          jsx(Codicon, { name: open ? 'chevron-down' : 'chevron-right' }),
+          jsx('strong', { className: 'text-xs', children: 'Achieved' }),
+          jsx('span', { className: 'rounded-full bg-(--ui-bg-quaternary) px-1.5 text-[10px] text-(--ui-text-tertiary)', children: achieved.length }),
+          jsx('span', { className: 'ml-auto text-[10.5px] text-(--ui-text-tertiary)', children: 'folded by default · accepted & dismissed this session' })
+        ]
+      }),
+      open ? jsx('div', { className: 'border-t border-(--ui-stroke-secondary) px-3 py-2', children: achieved.map(entry => jsx(AchievedRow, { entry }, `${entry.id}-${entry.at}`)) }) : null
     ]
   })
 }
@@ -336,6 +482,8 @@ function ManualCapture({ mutate }) {
 }
 
 function Inbox({ data, mutate, projects }) {
+  const [achieved, setAchieved] = useState([])
+  const [achievedOpen, setAchievedOpen] = useState(false)
   if (!data.available) {
     return jsx(EmptyState, {
       title: 'Office Inbox lives on the office desktop',
@@ -345,6 +493,10 @@ function Inbox({ data, mutate, projects }) {
   const captured = data.stages.captured || []
   const suggested = data.stages.suggested || []
   const reviewable = [...captured, ...suggested]
+  const recordAchieved = entry => {
+    if (achieved.length === 0) setAchievedOpen(true)
+    setAchieved(list => [{ ...entry, at: Date.now() }, ...list])
+  }
   return jsxs('div', {
     className: 'mx-auto flex w-full max-w-3xl flex-col gap-2',
     children: [
@@ -352,13 +504,14 @@ function Inbox({ data, mutate, projects }) {
       jsxs('div', { className: 'mb-1 flex items-center justify-between', children: [jsx('div', { className: 'text-sm text-(--ui-text-secondary)', children: 'Review each candidate before it becomes human-managed work.' }), jsx('span', { className: 'text-xs tabular-nums text-(--ui-text-tertiary)', children: `${reviewable.length} to review` })] }),
       captured.length ? jsxs('section', { children: [
         jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Captured' }),
-        jsx('div', { className: 'flex flex-col gap-2', children: captured.map(task => jsx(InboxCard, { task, mutate, projects }, task.id)) })
+        jsx('div', { className: 'flex flex-col gap-2', children: captured.map(task => jsx(InboxCard, { task, stage: 'captured', mutate, projects, onAchieved: recordAchieved }, task.id)) })
       ] }) : null,
       suggested.length ? jsxs('section', { className: captured.length ? 'mt-2' : '', children: [
         jsx('h2', { className: 'mb-2 text-xs font-medium uppercase tracking-wide text-(--ui-text-tertiary)', children: 'Legacy suggestions' }),
-        jsx('div', { className: 'flex flex-col gap-2', children: suggested.map(task => jsx(InboxCard, { task, mutate, projects }, task.id)) })
+        jsx('div', { className: 'flex flex-col gap-2', children: suggested.map(task => jsx(InboxCard, { task, stage: 'suggested', mutate, projects, onAchieved: recordAchieved }, task.id)) })
       ] }) : null,
-      reviewable.length ? null : jsx(EmptyState, { title: 'Inbox clear', description: 'Email, Slack, Telegram, GitHub, and manual captures appear here.' })
+      reviewable.length ? null : jsx(EmptyState, { title: 'Inbox clear', description: 'Email, Slack, Telegram, GitHub, and manual captures appear here.' }),
+      achieved.length ? jsx(AchievedSection, { achieved, open: achievedOpen, onToggle: () => setAchievedOpen(value => !value) }) : null
     ]
   })
 }

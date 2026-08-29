@@ -21,7 +21,7 @@ if [[ -z "$repo_dir" ]]; then
   if [[ -f "$script_dir/../patches/desktop-research-workflow.patch" ]]; then
     repo_dir="$(cd "$script_dir/.." && pwd)"
   else
-    repo_dir="$HOME/Documents/projects/hermes-customization"
+    repo_dir="$HOME/Documents/projects/hermes-customizations"
   fi
 fi
 
@@ -37,6 +37,10 @@ fail() {
 [[ -d "$hermes_source/.git" ]] || fail "Hermes source not found at $hermes_source"
 
 cd "$hermes_source"
+
+# Updates regenerate venv/bin/hermes without the __PYVENV_LAUNCHER__ guard;
+# restore it every tick (idempotent, silent when already applied).
+"$script_dir/harden-hermes-python-env.sh"
 
 # Already applied: nothing to say. This is the common case on every tick.
 if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then

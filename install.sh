@@ -177,8 +177,11 @@ if [[ -e "$legacy_runner" ]]; then
 fi
 install -m 0755 "$repo_dir/scripts/reapply-desktop-patch.sh" \
   "$script_target_dir/reapply-desktop-patch.sh"
+install -m 0755 "$repo_dir/scripts/harden-hermes-python-env.sh" \
+  "$script_target_dir/harden-hermes-python-env.sh"
 echo "Installed vault refresh script to $script_target_dir"
 echo "Installed Desktop patch restore script to $script_target_dir"
+echo "Installed Hermes Python environment hardener to $script_target_dir"
 
 install -d "$hook_target_dir"
 install -m 0644 "$repo_dir/hooks/telegram-idea-capture/HOOK.yaml" \

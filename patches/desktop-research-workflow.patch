@@ -1,16 +1,93 @@
+diff --git a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
+index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469e1483b91 100644
+--- a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
++++ b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
+@@ -1,4 +1,9 @@
+-import type { DesktopAgentRoster, DesktopConnectionKind, DesktopRegistryConnection } from '@/global'
++import type {
++  DesktopAgentRoster,
++  DesktopConnectionKind,
++  DesktopRegistryConnection,
++  RosterProfileMetadata
++} from '@/global'
+ import { sortConnectionsForDisplay } from '@/lib/connection-display'
+
+ // Pure grouping for the fleet profile rail: which gateways sit "at rest"
+@@ -14,6 +19,9 @@ export interface FleetAgent {
+   /** Pre-computed @name-device mention handle from the roster. */
+   handle: string
+   isDefault: boolean
++  /** Credential-free profile metadata for this exact (connection, profile),
++   *  when the roster enumerated it — the at-rest square's identity source. */
++  metadata?: RosterProfileMetadata
+ }
+
+ export interface FleetGroup {
+@@ -71,20 +79,21 @@ export function buildRestGroups({
+       continue
+     }
+
+-    const toAgent = (profile: string, handle?: string): FleetAgent => ({
++    const toAgent = (profile: string, handle?: string, metadata?: RosterProfileMetadata): FleetAgent => ({
+       connectionId: connection.id,
+       connectionKind: connection.kind,
+       connectionLabel: connection.label,
+       profile,
+       handle: handle ?? profile,
+-      isDefault: profile === DEFAULT_PROFILE
++      isDefault: profile === DEFAULT_PROFILE,
++      ...(metadata ? { metadata } : {})
+     })
+
+     const defaultRow = rows.find(row => row.profile === DEFAULT_PROFILE)
+
+     const named = rows
+       .filter(row => row.profile !== DEFAULT_PROFILE)
+-      .map(row => toAgent(row.profile, row.handle))
++      .map(row => toAgent(row.profile, row.handle, row.profileMetadata))
+       .sort((left, right) => collator.compare(left.profile, right.profile))
+
+     groups.push({
+@@ -92,7 +101,7 @@ export function buildRestGroups({
+       kind: connection.kind,
+       label: connection.label,
+       reachable: source?.reachable ?? true,
+-      defaultAgent: toAgent(DEFAULT_PROFILE, defaultRow?.handle),
++      defaultAgent: toAgent(DEFAULT_PROFILE, defaultRow?.handle, defaultRow?.profileMetadata),
+       named
+     })
+   }
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index fe11212e4..8d88bbe43 100644
+index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d0d262b0d 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
-@@ -153,6 +153,7 @@ import { ProfileRail } from './profile-switcher'
+@@ -151,8 +151,10 @@ import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds }
+ import { filterSessionsByProfileScope } from './profile-scope'
+ import { ProfileRail } from './profile-switcher'
  import { ProjectDialog } from './project-dialog'
++import { useFleetRoster } from './use-fleet-roster'
  import {
    excludeProjectSessions,
 +  foldProjectOverview,
    liveSessionProjectId,
    orderProjectsByIds,
    overlayLiveLanes,
-@@ -436,6 +437,7 @@ export function ChatSidebar({
+@@ -324,6 +326,14 @@ export function ChatSidebar({
+   const { t } = useI18n()
+   const s = t.sidebar
+   const { pathname } = useLocation()
++
++  // Profile identity (nicknames + avatar flags) for the rail and the session
++  // rows resolves against the fleet roster, so keep it fresh for the whole
++  // sidebar even with a single registered gateway — session identity must not
++  // be conditional on fleet mode. Bounded refresh (mount/focus/registry), no
++  // timer; the rail's own conditional mount stays as-is.
++  useFleetRoster(true)
++
+   // Contributed nav rows (plugins pairing a page with a sidebar entry) render
+   // below the built-ins with the same chrome; active = at their route.
+   const navContributions = useContributions(SIDEBAR_NAV_AREA)
+@@ -436,6 +446,7 @@ export function ChatSidebar({
    const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
    const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
    const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
@@ -18,10 +95,10 @@ index fe11212e4..8d88bbe43 100644
    const messagingOpenIds = useStore($sidebarMessagingOpenIds)
    // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
    const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
-@@ -1110,6 +1112,11 @@ export function ChatSidebar({
+@@ -1110,6 +1121,11 @@ export function ChatSidebar({
    // The project overview (drill-in list) vs. the entered project's content.
    const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
- 
+
 +  const foldedProjectOverview = useMemo(
 +    () => foldProjectOverview(projectOverview ?? [], projectsExpanded),
 +    [projectOverview, projectsExpanded]
@@ -30,8 +107,8 @@ index fe11212e4..8d88bbe43 100644
    // Preview rows come from the backend tree (each project carries its
    // most-recent sessions), overlaid with live $sessions so a just-created
    // session shows under its project instantly (and with its working arc),
-@@ -1441,7 +1448,14 @@ export function ChatSidebar({
- 
+@@ -1441,7 +1457,14 @@ export function ChatSidebar({
+
    // Persist the new project overview order (drag-to-reorder); orderByIds applies
    // it over the default sort, so stale/new ids reconcile on the next render.
 -  const reorderProjects = (ids: string[]) => setSidebarProjectOrderIds(ids)
@@ -43,19 +120,19 @@ index fe11212e4..8d88bbe43 100644
 +      ...projectModel.filter(project => !project.isNoProject && !reordered.has(project.id)).map(project => project.id)
 +    ])
 +  }
- 
+
    // Sortable rows carry live session ids; the pinned store is keyed by durable
    // (lineage-root) ids, so translate before persisting the new order.
-@@ -1522,7 +1536,7 @@ export function ChatSidebar({
+@@ -1527,7 +1550,7 @@ export function ChatSidebar({
                      }
                      type="button"
                    >
 -                    <item.icon className="size-4 shrink-0 text-[color-mix(in_srgb,currentColor_72%,transparent)]" />
 +                    <item.icon className="size-5 shrink-0 text-[color-mix(in_srgb,currentColor_78%,transparent)]" />
-                     <span className="min-w-0 flex-1 truncate">{s.nav[item.id] ?? item.label}</span>
-                     {isNewSession && (
-                       <KbdGroup
-@@ -1676,7 +1690,19 @@ export function ChatSidebar({
+                     {/* Shrink-to-fit, not flex-1: the label carries the row's
+                         `data-tour` handle, and anything anchored to it should
+                         land at the end of the WORD, not out at the sidebar's
+@@ -1692,7 +1715,19 @@ export function ChatSidebar({
                    )
                  }
                  footer={
@@ -76,7 +153,7 @@ index fe11212e4..8d88bbe43 100644
                    // themselves. Profile groups don't: this one footer fetches the
                    // next page, which grows every profile at once.
                    !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
-@@ -1810,7 +1836,7 @@ export function ChatSidebar({
+@@ -1826,7 +1861,7 @@ export function ChatSidebar({
                    inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
                  }
                  projectContent={inProject ? enteredProjectContent : undefined}
@@ -85,8 +162,328 @@ index fe11212e4..8d88bbe43 100644
                  projectOverviewPreviews={overviewPreviews}
                  projectRepoWorktrees={inProject ? scopedRepoWorktrees : undefined}
                  projectsLoading={worktreeGroupingActive ? projectTreeLoading : false}
+diff --git a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
+index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d020502b4d5 100644
+--- a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
++++ b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
+@@ -1,8 +1,9 @@
+-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
++import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+ import { atom } from 'nanostores'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+ import type { DesktopAgentRoster, DesktopConnectionsRegistry } from '@/global'
++import { queryClient } from '@/lib/query-client'
+
+ import { ProfileRail } from './profile-switcher'
+
+@@ -16,6 +17,13 @@ const navigate = vi.fn()
+ const selectConnection = vi.fn()
+ const selectProfile = vi.fn()
+ const getAgentRoster = vi.fn()
++const requestGatewayForAgent = vi.fn()
++
++// The avatar tile (ProfileAvatar) fetches `profiles.get_asset` through the
++// gateway router; stub it so no square ever dials a real socket from jsdom.
++vi.mock('@/store/gateway', () => ({
++  requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
++}))
+
+ vi.mock('react-router', () => ({
+   useNavigate: () => navigate
+@@ -154,7 +162,8 @@ const roster: DesktopAgentRoster = {
+       connectionKind: 'remote',
+       connectionLabel: 'Pandora',
+       profile: 'scout',
+-      handle: 'scout'
++      handle: 'scout',
++      profileMetadata: { has_avatar: true }
+     },
+     {
+       connectionId: 'local',
+@@ -163,7 +172,31 @@ const roster: DesktopAgentRoster = {
+       profile: 'default',
+       handle: 'hermes'
+     },
+-    { connectionId: 'local', connectionKind: 'local', connectionLabel: 'This device', profile: 'omer', handle: 'omer' }
++    { connectionId: 'local', connectionKind: 'local', connectionLabel: 'This device', profile: 'omer', handle: 'omer' },
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'blank',
++      handle: 'blank',
++      profileMetadata: { display_name: 'Blank', has_avatar: false }
++    },
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'sage',
++      handle: 'sage',
++      profileMetadata: { display_name: 'Sage Bot', has_avatar: true }
++    },
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'scout',
++      handle: 'scout-local',
++      profileMetadata: { display_name: 'Local Scout', has_avatar: true }
++    }
+   ],
+   sources: [
+     { connectionId: 'pandora', kind: 'remote', label: 'Pandora', reachable: true },
+@@ -197,12 +230,14 @@ async function renderFleet() {
+ beforeEach(() => {
+   getAgentRoster.mockResolvedValue(roster)
+   selectConnection.mockResolvedValue(undefined)
++  requestGatewayForAgent.mockResolvedValue({ found: false })
+   ;(window as { hermesDesktop?: unknown }).hermesDesktop = { getAgentRoster }
+ })
+
+ afterEach(() => {
+   cleanup()
+   vi.clearAllMocks()
++  queryClient.clear()
+   _resetFleetRosterForTests()
+   hasMultipleConnections.set(false)
+   connectionsRegistry.set(null)
+@@ -341,6 +376,102 @@ describe('ProfileRail fleet mode', () => {
+     expect(screen.getByRole('button', { name: 'omer' })).toBeTruthy()
+   })
+
++  it('labels at-rest squares with their nickname while keeping the technical name', async () => {
++    armFleet()
++    await renderFleet()
++
++    // Metadata nickname wins, and the bare profile name stays reachable in
++    // the same accessible name for anyone who knows the technical handle.
++    expect(screen.getByRole('button', { name: 'Sage Bot · This device (sage)' })).toBeTruthy()
++    // No metadata → the profile name is the nickname, label unchanged.
++    expect(screen.getByRole('button', { name: 'omer · This device' })).toBeTruthy()
++  })
++
++  it('fetches each avatar from its exact owning source, never by name alone', async () => {
++    armFleet()
++    await renderFleet()
++
++    await waitFor(() => {
++      // Duplicate "scout" on two gateways: one fetch per source, keyed by the
++      // owning connection — the active square through the active connection.
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'scout', 'profiles.get_asset', {
++        asset: 'avatar',
++        name: 'scout'
++      })
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
++        asset: 'avatar',
++        name: 'scout'
++      })
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'sage', 'profiles.get_asset', {
++        asset: 'avatar',
++        name: 'sage'
++      })
++    })
++
++    // An explicit has_avatar=false is the only thing that skips the probe.
++    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'blank', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'blank'
++    })
++
++    // A metadata-free profile is "unknown", not "no avatar": REST
++    // /api/profiles omits has_avatar, so these must still be probed.
++    expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'omer', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'omer'
++    })
++  })
++
++  it('keeps duplicate profile names on separate gateways as separate identities', async () => {
++    armFleet()
++    await renderFleet()
++
++    // The at-rest local scout carries ITS nickname; the active pandora scout
++    // keeps its own plain label. Neither leaks into the other.
++    expect(screen.getByRole('button', { name: 'Local Scout · This device (scout)' })).toBeTruthy()
++    expect(screen.getByRole('button', { name: 'scout' })).toBeTruthy()
++  })
++
++  it('keeps the default Home squares as glyphs, never avatars', async () => {
++    armFleet()
++    const container = await renderFleet()
++
++    for (const home of Array.from(container.querySelectorAll('[data-slot="profile-rail-rest-home"]'))) {
++      expect(home.querySelector('[data-slot="profile-avatar"]')).toBeNull()
++    }
++  })
++
++  it('renders the fallback initial when metadata is absent or the asset is missing', async () => {
++    armFleet()
++    const container = await renderFleet()
++
++    const omer = screen.getByRole('button', { name: 'omer · This device' })
++    expect(omer.querySelector('img')).toBeNull()
++    expect(omer.textContent).toBe('o')
++
++    // has_avatar=true but the asset probe found nothing: still the initial,
++    // never a broken image.
++    await act(async () => {
++      await Promise.resolve()
++    })
++    const sage = screen.getByRole('button', { name: 'Sage Bot · This device (sage)' })
++    expect(sage.querySelector('img')).toBeNull()
++    expect(sage.textContent).toBe('S')
++    expect(container.querySelector('img')).toBeNull()
++  })
++
++  it('keeps the active squares selectable and sortable after the avatar swap', async () => {
++    armFleet()
++    await renderFleet()
++
++    const scout = screen.getByRole('button', { name: 'scout' })
++    // dnd-kit's sortable attributes still land on the square itself.
++    expect(scout.getAttribute('aria-roledescription')).toBe('sortable')
++
++    fireEvent.click(scout)
++    expect(selectProfile).toHaveBeenCalledWith('scout')
++  })
++
+   it('counts the whole fleet toward the condensed threshold and sections the menu by gateway', async () => {
+     armFleet()
+     profiles.set([
+diff --git a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
+index 4cc5e530f163f388b7d089c9b29bcc431d961742..ae7f18ce03be860eda261b6288b88f385e444600 100644
+--- a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
++++ b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
+@@ -41,6 +41,7 @@ import {
+   DropdownMenuTrigger
+ } from '@/components/ui/dropdown-menu'
+ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
++import { ProfileAvatar } from '@/components/ui/profile-avatar'
+ import { ProfileGlyph } from '@/components/ui/profile-glyph'
+ import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+ import type { DesktopRegistryConnection } from '@/global'
+@@ -50,6 +51,11 @@ import { sortConnectionsForDisplay } from '@/lib/connection-display'
+ import { triggerHaptic } from '@/lib/haptics'
+ import { Loader2 } from '@/lib/icons'
+ import { PROFILE_SWATCHES, profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
++import {
++  type ProfileIdentity,
++  profileIdentityFromMetadata,
++  resolveProfileIdentity
++} from '@/lib/profile-identity'
+ import {
+   REORDER_DRAG_TRANSITION_CSS,
+   REORDER_RAIL_TRANSITION,
+@@ -369,6 +375,12 @@ export function ProfileRail() {
+                 <ProfileSquare
+                   active={!isAll && normalizeProfileKey(profile.name) === activeKey}
+                   color={resolveProfileColor(profile.name, colors)}
++                  identity={resolveProfileIdentity({
++                    connectionId: activeConnectionId,
++                    fallbackLabel: profileLabel(profile),
++                    profile: profile.name,
++                    roster
++                  })}
+                   key={profile.name}
+                   label={profileLabel(profile)}
+                   // The legacy per-profile remote override predates the
+@@ -1037,7 +1049,19 @@ function RestSquare({
+   const p = t.profiles
+   const hue = color ?? 'var(--ui-text-quaternary)'
+   const [pickerOpen, setPickerOpen] = useState(false)
+-  const label = p.fleet.onGateway(agent.profile, agent.connectionLabel)
++  // The square's identity comes from its own roster row, so duplicate names
++  // on other gateways can never leak a nickname or avatar into this one.
++  const identity = profileIdentityFromMetadata({
++    connectionId: agent.connectionId,
++    metadata: agent.metadata,
++    profile: agent.profile
++  })
++  // Nickname in the tooltip/accessible name; the technical profile name stays
++  // reachable in the same label whenever the nickname differs.
++  const label =
++    identity.nickname === agent.profile
++      ? p.fleet.onGateway(agent.profile, agent.connectionLabel)
++      : `${p.fleet.onGateway(identity.nickname, agent.connectionLabel)} (${agent.profile})`
+
+   const pickColor = (next: null | string) => {
+     onRecolor(next)
+@@ -1067,7 +1091,11 @@ function RestSquare({
+                     {pending ? (
+                       <Loader2 aria-hidden="true" className="size-3 animate-spin" />
+                     ) : (
+-                      agent.profile.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'
++                      <ProfileAvatar
++                        className="absolute inset-0 text-[0.5625rem]"
++                        color={color}
++                        identity={identity}
++                      />
+                     )}
+                   </button>
+                 </TooltipTrigger>
+@@ -1132,6 +1160,9 @@ function RestSquare({
+ interface ProfileSquareProps {
+   active: boolean
+   color: null | string
++  /** Resolved identity for this exact (active connection, profile) — drives
++   *  the avatar tile and its fallback initial. */
++  identity: ProfileIdentity
+   label: string
+   onSelect: () => void
+   onRecolor: (color: null | string) => void
+@@ -1160,6 +1191,7 @@ const LONG_PRESS_MS = 450
+ function ProfileSquare({
+   active,
+   color,
++  identity,
+   label,
+   onConnectRemote,
+   onDelete,
+@@ -1201,6 +1233,9 @@ function ProfileSquare({
+   useEffect(() => clearPress, [])
+
+   const base = CSS.Transform.toString(transform)
++  // The active ring is painted by an overlay span INSIDE the button rather
++  // than the button's own inset shadow: the avatar tile covers the button's
++  // full face, and an inset shadow would disappear behind it.
+   const ring = active ? `inset 0 0 0 1.5px ${hue}` : ''
+   const lift = isDragging ? '0 6px 16px -4px rgb(0 0 0 / 0.4)' : ''
+
+@@ -1227,7 +1262,7 @@ function ProfileSquare({
+                     ref={setNodeRef}
+                     style={{
+                       backgroundColor: profileColorSoft(hue, active ? 30 : 22),
+-                      boxShadow: [ring, lift].filter(Boolean).join(', ') || undefined,
++                      boxShadow: lift || undefined,
+                       color: color ?? undefined,
+                       // Glide the dragged square between snapped cells with a little
+                       // overshoot (no scale — the overflow-x strip would clip it).
+@@ -1274,7 +1309,20 @@ function ProfileSquare({
+                     }}
+                     onPointerUp={clearPress}
+                   >
+-                    {label.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
++                    <ProfileAvatar
++                      className="absolute inset-0 text-[0.5625rem]"
++                      color={color}
++                      identity={identity}
++                      tint={active ? 30 : 22}
++                    />
++                    {/* Active ring above the avatar tile (see `ring` above). */}
++                    {ring && (
++                      <span
++                        aria-hidden="true"
++                        className="pointer-events-none absolute inset-0 rounded-[3px]"
++                        style={{ boxShadow: ring }}
++                      />
++                    )}
+                     {/* The "remote" badge: a tiny globe pinned to the corner of an
+                         overridden profile's square, so which profiles leave this
+                         machine is visible at a glance (#91349). */}
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/index.ts b/apps/desktop/src/app/chat/sidebar/projects/index.ts
-index fb242fe73..391cb8323 100644
+index fb242fe73444ea855efdb56d79aaef45ad692c27..391cb8323cef7c5913257dca6be87a948b3a8956 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/index.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/index.ts
 @@ -1,7 +1,9 @@
@@ -100,16 +497,16 @@ index fb242fe73..391cb8323 100644
    projectTreeCwd,
    sortProjectsForOverview,
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
-index 8035686f3..baf3fe8bc 100644
+index 8035686f381a7500fbb1901bd5b2bca174e9dd93..baf3fe8bc7ba20e65ce7127f71cd256aa6619893 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 @@ -1,6 +1,6 @@
  import { describe, expect, it } from 'vitest'
- 
+
 -import { orderProjectsByIds, sortProjectsForOverview } from './model'
 +import { foldProjectOverview, orderProjectsByIds, sortProjectsForOverview } from './model'
  import { NO_PROJECT_ID, type SidebarProjectTree } from './workspace-groups'
- 
+
  function makeProject(id: string, sessionCount: number): SidebarProjectTree {
 @@ -76,3 +76,13 @@ describe('sortProjectsForOverview', () => {
      expect(ids(sortProjectsForOverview(projects, 'active'))).toEqual([NO_PROJECT_ID, 'active', 'scanned'])
@@ -126,23 +523,23 @@ index 8035686f3..baf3fe8bc 100644
 +  })
 +})
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.ts b/apps/desktop/src/app/chat/sidebar/projects/model.ts
-index 0836a089b..b789f4412 100644
+index 0836a089b31a062947e7dda9ca4dc2e27b395d25..b789f441284f37a3feb5f96b074885c8ebad5220 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.ts
 @@ -16,6 +16,9 @@ export const SIDEBAR_GROUP_PAGE = 5
  // Recent sessions previewed under each project in the overview.
  export const PROJECT_PREVIEW_COUNT = 3
- 
+
 +// Recent projects shown before the overview folds older rows.
 +export const PROJECT_OVERVIEW_COUNT = 5
 +
  // Max concurrent `git worktree list` probes when a project spans many repos.
  const WORKTREE_PROBE_CONCURRENCY = 4
- 
+
 @@ -117,6 +120,20 @@ export function orderProjectsByIds(projects: SidebarProjectTree[], orderIds: str
    ])
  }
- 
+
 +export function foldProjectOverview(
 +  projects: SidebarProjectTree[],
 +  expanded: boolean,
@@ -160,9 +557,653 @@ index 0836a089b..b789f4412 100644
  // Project drill-in lanes are git-driven: source them from `git worktree list` so
  // linked worktrees still appear even when their sessions aren't in the recents
  // payload currently loaded in memory.
+diff --git a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
+index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e706e71630 100644
+--- a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
++++ b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
+@@ -1,13 +1,17 @@
+-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
++import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+ import { atom } from 'nanostores'
+ import type * as React from 'react'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+
++import type { DesktopAgentRoster } from '@/global'
+ import type { SessionInfo } from '@/hermes'
+ import { createClientSessionState } from '@/lib/chat-runtime'
+ import type * as ChatRuntime from '@/lib/chat-runtime'
++import { queryClient } from '@/lib/query-client'
+ import type * as Time from '@/lib/time'
+ import type * as ComposerStatusStore from '@/store/composer-status'
++import { $fleetRoster } from '@/store/fleet-roster'
++import type * as GatewayStore from '@/store/gateway'
+ import type * as SessionStore from '@/store/session'
+ import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
+ import type * as SessionStatesStore from '@/store/session-states'
+@@ -15,7 +19,22 @@ import type * as WindowsStore from '@/store/windows'
+
+ import { SidebarSessionRow } from './session-row'
+
+-afterEach(cleanup)
++const requestGatewayForAgent = vi.fn()
++
++// Only the avatar RPC path is stubbed; the rest of the gateway store stays
++// genuine for the same wholesale-mock reasons documented below.
++vi.mock('@/store/gateway', async importOriginal => {
++  const actual = await importOriginal<typeof GatewayStore>()
++
++  return { ...actual, requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args) }
++})
++
++afterEach(() => {
++  cleanup()
++  $fleetRoster.set(null)
++  queryClient.clear()
++  requestGatewayForAgent.mockReset()
++})
+
+ vi.mock('@/i18n', () => ({
+   useI18n: () => ({
+@@ -411,6 +430,145 @@ describe('SidebarSessionRow', () => {
+   })
+ })
+
++describe('SidebarSessionRow owner identity', () => {
++  const rosterFixture: DesktopAgentRoster = {
++    agents: [
++      {
++        connectionId: 'pandora',
++        connectionKind: 'remote',
++        connectionLabel: 'Pandora',
++        profile: 'scout',
++        handle: 'scout-pandora',
++        profileMetadata: { display_name: 'Pandora Scout', has_avatar: true }
++      },
++      {
++        connectionId: 'local',
++        connectionKind: 'local',
++        connectionLabel: 'This device',
++        profile: 'scout',
++        handle: 'scout-local',
++        profileMetadata: { display_name: 'Local Scout', has_avatar: false }
++      },
++      {
++        connectionId: 'local',
++        connectionKind: 'local',
++        connectionLabel: 'This device',
++        profile: 'omer',
++        handle: 'omer'
++      }
++    ],
++    sources: [
++      { connectionId: 'local', kind: 'local', label: 'This device', reachable: true },
++      { connectionId: 'pandora', kind: 'remote', label: 'Pandora', reachable: true }
++    ]
++  }
++
++  const avatarTile = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-slot="profile-avatar"]')
++
++  it('renders the owning profile avatar and nickname from the exact connection and profile', async () => {
++    $fleetRoster.set(rosterFixture)
++    requestGatewayForAgent.mockResolvedValue({ found: true, data: 'data:image/png;base64,QUJD' })
++
++    const { container } = renderRow(
++      makeSession({ connection_id: 'pandora', profile: 'scout', title: 'Owned session' })
++    )
++
++    expect(avatarTile(container)?.getAttribute('title')).toBe('Pandora Scout')
++    expect(screen.getByText('Pandora Scout')).toBeTruthy()
++    await waitFor(() =>
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
++        asset: 'avatar',
++        name: 'scout'
++      })
++    )
++    await waitFor(() =>
++      expect(avatarTile(container)?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,QUJD')
++    )
++  })
++
++  it('resolves duplicate profile names independently per connection', () => {
++    $fleetRoster.set(rosterFixture)
++
++    render(
++      <>
++        {(
++          [
++            makeSession({ connection_id: 'pandora', id: 's1', profile: 'scout', title: 'On Pandora' }),
++            makeSession({ connection_id: 'local', id: 's2', profile: 'scout', title: 'On this device' })
++          ] as SessionInfo[]
++        ).map(session => (
++          <SidebarSessionRow
++            isPinned={false}
++            isSelected={false}
++            key={session.id}
++            onArchive={noop}
++            onDelete={noop}
++            onPin={noop}
++            onResume={noop}
++            onToggleUnread={noop}
++            session={session}
++            unread={false}
++          />
++        ))}
++      </>
++    )
++
++    const titles = [...document.querySelectorAll('[data-slot="profile-avatar"]')].map(t => t.getAttribute('title'))
++
++    expect(titles).toContain('Pandora Scout')
++    expect(titles).toContain('Local Scout')
++    // Only Pandora's scout reports an avatar asset; local scout must not
++    // inherit it through the shared name.
++    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'scout', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'scout'
++    })
++  })
++
++  it('falls back to the profile label and initial when metadata is missing', async () => {
++    $fleetRoster.set(rosterFixture)
++
++    const { container } = renderRow(makeSession({ connection_id: 'local', profile: 'omer', title: 'Old gateway' }))
++
++    const tile = avatarTile(container)
++
++    expect(tile?.getAttribute('title')).toBe('omer')
++    expect(tile?.textContent).toBe('o')
++    expect(tile?.querySelector('img')).toBeNull()
++  })
++
++  it('keeps local default sessions rendering without identity chrome', () => {
++    const { container } = renderRow(makeSession({ title: 'Plain default session' }))
++
++    expect(screen.getByText('Plain default session')).toBeTruthy()
++    expect(avatarTile(container)).toBeNull()
++    expect(requestGatewayForAgent).not.toHaveBeenCalled()
++  })
++
++  it('keeps the running arc, kebab, timestamp, and handoff avatar beside the identity', () => {
++    $fleetRoster.set(rosterFixture)
++    publishSessionState('rt1', { ...createClientSessionState('s1'), busy: true })
++
++    const { container } = renderRow(
++      makeSession({
++        connection_id: 'pandora',
++        handoff_platform: 'telegram',
++        handoff_state: 'active',
++        profile: 'scout',
++        title: 'Busy owned session'
++      })
++    )
++
++    expect(avatarTile(container)?.getAttribute('title')).toBe('Pandora Scout')
++    expect(container.querySelector('.arc-row')).toBeTruthy()
++    expect(screen.getByRole('button', { name: 'Session actions' })).toBeTruthy()
++    expect(screen.getByText('5m').tagName).toBe('TIME')
++    expect(handoffAvatar(container)).toBeTruthy()
++
++    clearAllSessionStates()
++  })
++})
++
+ describe('Inbox-style session card', () => {
+   it('gives truncated card lines room for glyph ink instead of clipping them', () => {
+     renderRow(
+diff --git a/apps/desktop/src/app/chat/sidebar/session-row.tsx b/apps/desktop/src/app/chat/sidebar/session-row.tsx
+index 41aa0abc2cbaec0f4b7af20052feb16f21062aaa..272c7afbf7a822ac01e5c8090c9a2261137a7f56 100644
+--- a/apps/desktop/src/app/chat/sidebar/session-row.tsx
++++ b/apps/desktop/src/app/chat/sidebar/session-row.tsx
+@@ -10,6 +10,7 @@ import { openSession } from '@/app/open-session'
+ import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
+ import { Button } from '@/components/ui/button'
+ import { Codicon } from '@/components/ui/codicon'
++import { ProfileAvatar } from '@/components/ui/profile-avatar'
+ import { OverflowTip, Tip } from '@/components/ui/tooltip'
+ import type { SessionInfo } from '@/hermes'
+ import { type Translations, useI18n } from '@/i18n'
+@@ -19,13 +20,16 @@ import { compactNumber } from '@/lib/format'
+ import { triggerHaptic } from '@/lib/haptics'
+ import { middleClickHandlers } from '@/lib/middle-click'
+ import { displayModelName } from '@/lib/model-status-label'
++import { resolveProfileColor } from '@/lib/profile-color'
++import { resolveProfileIdentity } from '@/lib/profile-identity'
+ import { sessionProjectLabel } from '@/lib/session-project-label'
+ import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
+ import { coarseElapsed } from '@/lib/time'
+ import { useStoreSelector } from '@/lib/use-session-slice'
+ import { cn } from '@/lib/utils'
++import { $fleetRoster } from '@/store/fleet-roster'
+ import { $sidebarRowMeta } from '@/store/layout'
+-import { normalizeProfileKey } from '@/store/profile'
++import { $profileColors, normalizeProfileKey } from '@/store/profile'
+ import { $projects } from '@/store/projects'
+ import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
+ import { $sessionDotStateById, hasLiveTurn, showsRunningArc } from '@/store/session-dot-state'
+@@ -169,6 +173,24 @@ function SidebarSessionRowImpl({
+   // The default profile has no mark worth spending a row slot on — a chip on
+   // every row that says "the normal one" is noise. Named profiles only.
+   const hasProfileTag = normalizeProfileKey(session.profile) !== 'default'
++  // The owning profile's identity, resolved from its EXACT source (a session
++  // spliced from a registry gateway carries connection_id; primary/local rows
++  // resolve by unambiguous name). Same resolver the rail uses, so a session
++  // row and its rail square can never disagree.
++  const roster = useStore($fleetRoster)
++  const profileColors = useStore($profileColors)
++
++  const ownerIdentity = resolveProfileIdentity({
++    connectionId: session.connection_id ?? null,
++    profile: session.profile || 'default',
++    roster
++  })
++
++  // Identity chrome only when it says something: a named profile or a real
++  // nickname. A bare default row stays exactly as it was. Deliberately not
++  // keyed on `mayHaveAvatar` — that is now "unknown, worth probing", true for
++  // every metadata-less profile, which would put a tile on every plain row.
++  const showOwner = hasProfileTag || ownerIdentity.nickname !== ownerIdentity.profile
+   const pinnedProfile = hasProfileTag && rowMeta.includes('profile')
+   // The branch's PR, if the row was asked to show one. A selector, not a plain
+   // useStore: a repo's PRs land as a single map write, and only the rows on
+@@ -476,6 +498,19 @@ function SidebarSessionRowImpl({
+               </SidebarRowLead>
+             )
+
++            // Owner identity: the same avatar and visible nickname the rail
++            // square paints. The muted text keeps the owner discoverable even
++            // when the image itself is unfamiliar or unavailable.
++            const ownerAvatar = showOwner ? (
++              <ProfileAvatar
++                className="size-4 shrink-0 self-center text-[0.5rem]"
++                color={resolveProfileColor(ownerIdentity.profile, profileColors)}
++                identity={ownerIdentity}
++                label={ownerIdentity.nickname}
++                title={ownerIdentity.nickname}
++              />
++            ) : null
++
+             const handoffBadge =
+               handoffSource && handoffLabel ? (
+                 <Tip label={r.handoffOrigin(handoffLabel)}>
+@@ -491,6 +526,7 @@ function SidebarSessionRowImpl({
+               return (
+                 <>
+                   {leadNode}
++                  {ownerAvatar}
+                   {handoffBadge}
+                   <span className="min-w-0 flex-1 self-center">
+                     <OverflowTip label={title}>
+@@ -502,6 +538,16 @@ function SidebarSessionRowImpl({
+                         <span className="hover-marquee-inner">{title}</span>
+                       </SidebarRowLabel>
+                     </OverflowTip>
++                    {showOwner ? (
++                      <span
++                        className={cn(
++                          'mt-0.5 block truncate text-[0.625rem] text-(--ui-text-tertiary)',
++                          SIDEBAR_TRUNCATED_LEADING
++                        )}
++                      >
++                        {ownerIdentity.nickname}
++                      </span>
++                    ) : null}
+                     {/* Session-list density (#68119): comfortable adds one
+                         deterministic metadata line; detailed adds the initial
+                         request preview. Compact keeps today's one-line row. */}
+@@ -539,6 +585,7 @@ function SidebarSessionRowImpl({
+                     entire width — nothing truncates against the kebab. */}
+                 <div className="flex min-w-0 items-center gap-1.5">
+                   {leadNode}
++                  {ownerAvatar}
+                   <span
+                     className={cn(
+                       'min-w-0 flex-1 truncate text-[0.6875rem] text-(--ui-text-tertiary)',
+@@ -565,6 +612,16 @@ function SidebarSessionRowImpl({
+                       <span className="hover-marquee-inner">{title}</span>
+                     </SidebarRowLabel>
+                   </OverflowTip>
++                  {showOwner ? (
++                    <span
++                      className={cn(
++                        'min-w-0 truncate text-[0.625rem] text-(--ui-text-tertiary)',
++                        SIDEBAR_TRUNCATED_LEADING
++                      )}
++                    >
++                      {ownerIdentity.nickname}
++                    </span>
++                  ) : null}
+                   {session.preview && rowMeta.includes('preview') ? (
+                     <span
+                       className={cn(
+diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+index dfdfd84f2c63edc728a5150bd49b042f556f66f1..2c256901ce640169cf8ec6ab1c0f6d5cf0e14901 100644
+--- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
++++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
+  *  when the backend the app talks to swaps underneath a still-mounted view. */
+ export function useOnProfileSwitch(onSwitch: () => void): void {
+   const profile = useStore($activeGatewayProfile)
+-  const first = useRef(true)
++  const previousProfile = useRef(profile)
+
+   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
+   useEffect(() => {
+-    if (first.current) {
+-      first.current = false
+-
++    // React StrictMode replays mount effects in development. A "first effect"
++    // boolean turns that replay into a fake switch and clears freshly loaded
++    // Settings drafts, leaving the overlay on skeletons until a page refresh.
++    // Comparing the identity itself makes both mount passes no-ops while a real
++    // A → B profile transition still fires exactly once.
++    if (previousProfile.current === profile) {
+       return
+     }
+
++    previousProfile.current = profile
+     onSwitch()
+     // Fire on profile change only; onSwitch identity is intentionally ignored.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+index b2c94ecf69a1f44e67f59bb7f3c28a591e8fe1e7..597f860139094a0f9561ad7993ed881398fdda22 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+@@ -68,7 +68,6 @@ import {
+   type ToolTitleAction
+ } from './fallback-model'
+ import { isToolCallPart, summarizeToolRun } from './run-summary'
+-import { ToolRunTicker } from './run-ticker'
+
+ // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
+ // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
+@@ -369,7 +368,9 @@ function ToolEntry({ part }: ToolEntryProps) {
+   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
+   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
+   const isFileEdit = isFileEditTool(toolName)
+-  const defaultOpen = Boolean(inlineDiff)
++  // A live diff is progress, not the handoff: keep it to one quiet row until
++  // the user asks. Once the turn settles, the finished edit opens as before.
++  const defaultOpen = Boolean(inlineDiff) && !messageRunning
+   const open = useDisclosureOpen(disclosureId, defaultOpen)
+   const canDismiss = !isPending && !embedded
+   // Only animate entries that mount while their message is actively
+@@ -782,18 +783,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
+   return items
+ }
+
+-/**
+- * The live run, as one line.
+- *
+- * A run in progress shows only what it is doing right now; each new action
+- * slides the one before it up and out of a single-line window, so a turn that
+- * touches thirty files reads as one line ticking over in place instead of a
+- * list growing down the page. When the run settles the ticker goes away and
+- * the summary above it is all that's left.
+- */
+ // The one grey line that stands in for a run of tool calls — "Explored 3
+-// files, ran 5 commands". Live, it narrates in the present tense above the
+-// ticker and offers no toggle, since there is nothing settled to unfold yet.
++// files, ran 5 commands". Live, it narrates in the present tense; details stay
++// behind the same disclosure as settled history.
+ function ToolRunHeader({
+   completedAt,
+   live,
+@@ -913,9 +905,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+  * index is what made an earlier attempt at this reshuffle the moment a turn
+  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
+  *
+- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
+- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
+- * row still owns its own chrome (timer / copy / approval) when shown.
++ * Live or settled, the summary is the whole of it until the user opens it.
++ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
++ * copy / approval) when shown.
+  */
+ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
+   children,
+@@ -942,14 +934,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+     return <>{children}</>
+   }
+
+-  // Two things a one-line window can't hold. An approval is a question the
+-  // user has to answer, and expanded output is one they went looking for —
+-  // both would tick straight past, or be sliced to a single line, as the run
+-  // keeps going. Either one hands the run back its full height until the run
+-  // settles and the row can be reached through the summary instead.
++  // Keep live activity as quiet as settled history: the summary stays visible,
++  // while call details are one click away. Approval remains the sole exception
++  // because a question that needs the user must never be hidden.
+   const blocked = Boolean(approval) && pendingApprovalTool
+-  const unfurled = blocked || rowOpen
+-  const expanded = live ? unfurled : (persistedOpen ?? false)
++  const expanded = blocked || rowOpen || (persistedOpen ?? false)
+
+   return (
+     <div
+@@ -961,12 +950,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+       <ToolRunHeader
+         completedAt={completedAt}
+         live={live}
+-        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
++        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
+         open={expanded}
+         startedAt={startedAt}
+         summary={summary}
+       />
+-      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
+       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
+     </div>
+   )
+diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+index 5d66c9d9d392a334a8004d23ad37e6b4b142b156..7d178f29acfcd0cbf41e6a9f7dfed111c1db7442 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
+       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
+     })
+   })
++
++  it('folds a live diff until requested', async () => {
++    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
++    const { container } = render(<GroupHarness message={message} />)
++
++    const toggle = await waitFor(() => {
++      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
++      expect(button).not.toBeNull()
++
++      return button as HTMLButtonElement
++    })
++
++    expect(container.querySelector('[data-file-edit]')).toBeNull()
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
++  })
+ })
+
+ // The transcript rests its scaffolding at a fade, keyed off one attribute. A
+@@ -470,56 +488,40 @@ describe('transcript fade', () => {
+ })
+
+ describe('live tool run', () => {
+-  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
++  it('keeps running details folded behind a summary', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+
+     await waitFor(() => {
+-      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+     })
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+
+-  it('cannot be collapsed while a tool is still running', async () => {
++  it('expands and collapses running details on request', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+-    })
++    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
++    fireEvent.click(toggle)
+
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
++    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('true')
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+   })
+
+   // Liveness used to also require an unresolved call, which is false for the
+   // instant between one sequential call finishing and the next arriving — so a
+-  // string of commands settled and re-opened between every one, unmounting the
+-  // ticker and dropping its reel back to the first row instead of scrolling.
++  // string of commands briefly switched to settled language between calls.
+   it('stays live in the gap between two sequential calls', async () => {
+     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+
+     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
+-    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
+-  })
+-
+-  // The ticker is a one-line window, so a row opened inside it had its output
+-  // sliced to that line and then ticked away by the next call. Opening a row
+-  // is a request to read it: the run gives up the window until it settles.
+-  it('drops the one-line window when a row inside it is opened', async () => {
+-    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+-
+-    await screen.findByText('Running 2 commands')
+-
+-    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
+-
+-    expect(row).not.toBeNull()
+-
+-    fireEvent.click(row as Element)
+-
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
+-    })
+-
+-    // ...and the row it opened is still on screen to be read.
+-    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+ })
+
+diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+index c72faa80f853c41869b70bb70debc57efcd60ef4..5876a9734fc8354a843e64948d5a44b963be720e 100644
+--- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
++++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+@@ -657,9 +657,9 @@ function Sash({
+         // Asymmetric grab band: only 1px reaches into the leading pane so its
+         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
+         // swallowed it entirely — the pointer got col-resize instead of the
+-        // thumb). The trailing side keeps a generous 7px reach; total grab
+-        // width stays ~8px so the sash is no harder to hit.
+-        horizontal ? 'inset-y-0 left-0 w-[8px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[8px] -translate-y-[1px]',
++        // thumb). Keep only 4px on the trailing side: the previous 7px reach
++        // grabbed ordinary clicks near a rail and made resizing feel twitchy.
++        horizontal ? 'inset-y-0 left-0 w-[5px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[5px] -translate-y-[1px]',
+         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
+       )}
+       onDoubleClick={disabled ? undefined : onDoubleClick}
+diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
+index 795d517333939921681d39d20171d51d7e6574c1..359fff069ea633f61c38e2ef8c1264032de8aae4 100644
+--- a/apps/desktop/src/global.d.ts
++++ b/apps/desktop/src/global.d.ts
+@@ -916,6 +916,17 @@ export interface DesktopRegistryConnectionInput {
+   remoteProfile?: string
+ }
+
++// Credential-free profile metadata enumerated with the roster. Mirrors the
++// Electron shape (electron/connection-registry.ts RosterProfileMetadata):
++// the main process has attached this to roster rows since the Bot Mode
++// enumeration; the renderer declaration matches that runtime truth.
++export interface RosterProfileMetadata {
++  display_name?: string
++  title?: string
++  ui_meta?: Record<string, unknown>
++  has_avatar?: boolean
++}
++
+ // One agent in the union roster: a profile on a registered source, with the
+ // pre-computed @name-device handle for duplicate profile names.
+ export interface DesktopRosterAgent {
+@@ -925,6 +936,8 @@ export interface DesktopRosterAgent {
+   profile: string
+   targetProfile?: string
+   handle: string
++  /** Rich metadata for this exact connection + profile, when enumerated. */
++  profileMetadata?: RosterProfileMetadata
+ }
+
+ export interface DesktopAgentRoster {
+diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
+index 584c00a57ae15f1e62eda5914d52da01774964ba..35b4e5b2bd225d11d7ba9890ce8ea5b5f9f6f519 100644
+--- a/apps/desktop/src/store/reasoning-disclosure.ts
++++ b/apps/desktop/src/store/reasoning-disclosure.ts
+@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
+
+ import { persistBoolean, storedBoolean } from '@/lib/storage'
+
+-const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
++const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
+
+ /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
+-export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
++export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
+
+ $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
+
+diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
+index 9aad4fd8e43197a758a7465b89342daf97af072f..8c0a9a20c32303d7267ed8bd284a094282bfa063 100644
+--- a/hermes_cli/web_server.py
++++ b/hermes_cli/web_server.py
+@@ -18337,6 +18337,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+         result["customCSS"] = custom_css
+     if component_styles:
+         result["componentStyles"] = component_styles
++    for key in ("terminalBackground", "terminalForeground"):
++        value = data.get(key)
++        if isinstance(value, str) and value.strip():
++            result[key] = value
+     return result
+
+
+diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
+index d6feee8ab681d204797ebbd8c2df6837c3850a04..9af5b9fa9f3d363d037464d64a049c8ed9a733e3 100644
+--- a/tests/hermes_cli/test_web_server.py
++++ b/tests/hermes_cli/test_web_server.py
+@@ -3806,6 +3806,19 @@ class TestNormaliseThemeExtensions:
+         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
+         assert len(r2["customCSS"]) <= 32 * 1024
+
++    def test_terminal_colors_reach_custom_theme_clients(self):
++        """A user theme can control the xterm canvas and selection contrast."""
++        from hermes_cli.web_server import _normalise_theme_definition
++
++        result = _normalise_theme_definition({
++            "name": "light-terminal",
++            "terminalBackground": "#f7f7f7",
++            "terminalForeground": "#252526",
++        })
++
++        assert result["terminalBackground"] == "#f7f7f7"
++        assert result["terminalForeground"] == "#252526"
++
+
+     def test_component_styles_per_bucket(self):
+         from hermes_cli.web_server import _normalise_theme_definition
 diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 new file mode 100644
-index 000000000..8a0b26470
+index 0000000000000000000000000000000000000000..8a0b26470259785d6b1bb95c1fd4fa505e3b0ec9
 --- /dev/null
 +++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 @@ -0,0 +1,40 @@
@@ -206,629 +1247,504 @@ index 000000000..8a0b26470
 +    expect(onSwitch).toHaveBeenCalledOnce()
 +  })
 +})
-diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-index dfdfd84f2..2c256901c 100644
---- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-+++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
-  *  when the backend the app talks to swaps underneath a still-mounted view. */
- export function useOnProfileSwitch(onSwitch: () => void): void {
-   const profile = useStore($activeGatewayProfile)
--  const first = useRef(true)
-+  const previousProfile = useRef(profile)
- 
-   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-   useEffect(() => {
--    if (first.current) {
--      first.current = false
--
-+    // React StrictMode replays mount effects in development. A "first effect"
-+    // boolean turns that replay into a fake switch and clears freshly loaded
-+    // Settings drafts, leaving the overlay on skeletons until a page refresh.
-+    // Comparing the identity itself makes both mount passes no-ops while a real
-+    // A → B profile transition still fires exactly once.
-+    if (previousProfile.current === profile) {
-       return
-     }
- 
-+    previousProfile.current = profile
-     onSwitch()
-     // Fire on profile change only; onSwitch identity is intentionally ignored.
-     // eslint-disable-next-line react-hooks/exhaustive-deps
-diff --git a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
-index b9d9eff4e..02feba32c 100644
---- a/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
-+++ b/apps/desktop/src/app/shell/hooks/use-statusbar-items.tsx
-@@ -10,12 +10,13 @@ import { GatewayMenuPanel } from '@/app/shell/gateway-menu-panel'
- import { useContextBreakdown } from '@/app/shell/hooks/use-context-breakdown'
- import { $paneVisible, togglePaneVisible } from '@/components/pane-shell/tree/store'
- import { Codicon } from '@/components/ui/codicon'
-+import { ContextUsageRing } from '@/components/ui/context-usage-ring'
- import { GlyphSpinner } from '@/components/ui/glyph-spinner'
- import { useI18n } from '@/i18n'
- import { displayPath, pathLeaf } from '@/lib/display-path'
- import { Activity, AlertCircle, Clock, Command, FolderOpen, Globe, Hash, Loader2, Terminal } from '@/lib/icons'
- import { runtimeReadinessDisplay, type RuntimeReadinessResult } from '@/lib/runtime-readiness'
--import { contextBarLabel, LiveDuration, usageContextLabel } from '@/lib/statusbar'
-+import { contextUsagePercent, LiveDuration } from '@/lib/statusbar'
- import { useStoreSelector } from '@/lib/use-session-slice'
- import { cn } from '@/lib/utils'
- import { resolveVersionStatus } from '@/lib/version-status'
-@@ -37,7 +38,6 @@ import {
-   sessionMatchesStoredId
- } from '@/store/session'
- import { $focusedRuntimeId, $focusedSessionState, $focusedStoredSessionId } from '@/store/session-states'
--import { $statusbarHiddenIds } from '@/store/statusbar-prefs'
- import { $subagentsBySession, activeSubagentCount, failedSubagentCount } from '@/store/subagents'
- import { $gatewayRestarting } from '@/store/system-actions'
- import {
-@@ -233,13 +233,11 @@ export function useStatusbarItems({
-   // nothing to paint — turning it on looked like it did nothing until you sent
-   // a message. Estimate from the live prompt + transcript instead, on the same
-   // read-only RPC the popover uses, so the readout is right the moment it's on
--  // screen. Gated on the gauge being shown — the bar itself is unmounted while
--  // toggled off, so this covers the rest.
--  const contextItemHidden = useStore($statusbarHiddenIds).includes('context-usage')
--
-+  // screen. The status bar is the gauge's single owner, so its breakdown stays
-+  // keyed to the focused session whenever that bar is mounted.
-   const { breakdown: contextBreakdown, loading: contextBreakdownLoading } = useContextBreakdown({
-     busy,
--    enabled: !contextItemHidden,
-+    enabled: true,
-     requestGateway,
-     sessionId: activeSessionId
-   })
-@@ -264,8 +262,7 @@ export function useStatusbarItems({
-     [contextBreakdown, currentUsage]
-   )
- 
--  const contextUsage = useMemo(() => usageContextLabel(gaugeUsage), [gaugeUsage])
--  const contextBar = useMemo(() => contextBarLabel(gaugeUsage), [gaugeUsage])
-+  const contextPercent = useMemo(() => contextUsagePercent(gaugeUsage), [gaugeUsage])
- 
-   const approvalModeItem = useApprovalModeStatusbarItem(activeGatewayProfile, requestGateway)
- 
-@@ -545,16 +542,15 @@ export function useStatusbarItems({
-         variant: 'text'
-       },
-       {
--        detail: contextBar || undefined,
--        hidden: !contextUsage,
-+        hidden: contextPercent === null,
-+        icon: contextPercent === null ? undefined : <ContextUsageRing percent={contextPercent} />,
-         id: 'context-usage',
--        label: contextUsage,
-+        label: contextPercent === null ? undefined : `${contextPercent}%`,
-         menuAlign: 'end',
-         menuClassName: 'w-auto border-(--ui-stroke-secondary) p-0',
-         menuContent: (
-           <ContextUsagePanel breakdown={contextBreakdown} loading={contextBreakdownLoading} usage={gaugeUsage} />
-         ),
--        toggleLabel: copy.toggleContextUsage,
-         variant: 'menu'
-       },
-       {
-@@ -590,10 +586,9 @@ export function useStatusbarItems({
-       busy,
-       chatOpen,
-       clientVersionItem,
--      contextBar,
-       contextBreakdown,
-       contextBreakdownLoading,
--      contextUsage,
-+      contextPercent,
-       copy,
-       gaugeUsage,
-       sessionStartedAt,
-diff --git a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
-index d558c11d1..d5bd5fee7 100644
---- a/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
-+++ b/apps/desktop/src/app/shell/statusbar-visibility.test.tsx
-@@ -95,20 +95,24 @@ describe('statusbar item visibility', () => {
-     expect(screen.getByText('Plugin thing')).toBeTruthy()
-   })
- 
--  it('starts the per-turn session readouts hidden and restores them from the menu', async () => {
-+  it('keeps the context meter visible while the optional timers start hidden', async () => {
-     const statusbar = bar([
-       item('running-timer', 'Turn timer', { variant: 'text' }),
--      item('context-usage', 'Context meter', { variant: 'menu' }),
-+      item('context-usage', 'Context meter', { toggleLabel: undefined, variant: 'menu' }),
-       item('session-timer', 'Session timer', { variant: 'text' }),
-       item('gateway-health', 'Gateway')
-     ])
- 
--    for (const label of ['Turn timer', 'Context meter', 'Session timer']) {
-+    for (const label of ['Turn timer', 'Session timer']) {
-       expect(screen.queryByText(label)).toBeNull()
-     }
- 
-+    expect(within(statusbar).getByText('Context meter')).toBeTruthy()
+diff --git a/apps/desktop/src/components/ui/profile-avatar.test.tsx b/apps/desktop/src/components/ui/profile-avatar.test.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..fe67703c8c2af1293e9c344e0e4caba12bd64461
+--- /dev/null
++++ b/apps/desktop/src/components/ui/profile-avatar.test.tsx
+@@ -0,0 +1,137 @@
++import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 +
-     openContextMenu(statusbar)
- 
-+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Context meter' })).toBeNull()
++import type { ProfileIdentity } from '@/lib/profile-identity'
++import { queryClient } from '@/lib/query-client'
 +
-     const row = await screen.findByRole('menuitemcheckbox', { name: 'Session timer' })
-     fireEvent.click(row)
- 
-diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index b2c94ecf6..597f86013 100644
---- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-@@ -68,7 +68,6 @@ import {
-   type ToolTitleAction
- } from './fallback-model'
- import { isToolCallPart, summarizeToolRun } from './run-summary'
--import { ToolRunTicker } from './run-ticker'
- 
- // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
- // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
-@@ -369,7 +368,9 @@ function ToolEntry({ part }: ToolEntryProps) {
-   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
-   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
-   const isFileEdit = isFileEditTool(toolName)
--  const defaultOpen = Boolean(inlineDiff)
-+  // A live diff is progress, not the handoff: keep it to one quiet row until
-+  // the user asks. Once the turn settles, the finished edit opens as before.
-+  const defaultOpen = Boolean(inlineDiff) && !messageRunning
-   const open = useDisclosureOpen(disclosureId, defaultOpen)
-   const canDismiss = !isPending && !embedded
-   // Only animate entries that mount while their message is actively
-@@ -782,18 +783,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
-   return items
- }
- 
--/**
-- * The live run, as one line.
-- *
-- * A run in progress shows only what it is doing right now; each new action
-- * slides the one before it up and out of a single-line window, so a turn that
-- * touches thirty files reads as one line ticking over in place instead of a
-- * list growing down the page. When the run settles the ticker goes away and
-- * the summary above it is all that's left.
-- */
- // The one grey line that stands in for a run of tool calls — "Explored 3
--// files, ran 5 commands". Live, it narrates in the present tense above the
--// ticker and offers no toggle, since there is nothing settled to unfold yet.
-+// files, ran 5 commands". Live, it narrates in the present tense; details stay
-+// behind the same disclosure as settled history.
- function ToolRunHeader({
-   completedAt,
-   live,
-@@ -913,9 +905,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
-  * index is what made an earlier attempt at this reshuffle the moment a turn
-  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
-  *
-- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
-- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
-- * row still owns its own chrome (timer / copy / approval) when shown.
-+ * Live or settled, the summary is the whole of it until the user opens it.
-+ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
-+ * copy / approval) when shown.
-  */
- const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
-   children,
-@@ -942,14 +934,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-     return <>{children}</>
-   }
- 
--  // Two things a one-line window can't hold. An approval is a question the
--  // user has to answer, and expanded output is one they went looking for —
--  // both would tick straight past, or be sliced to a single line, as the run
--  // keeps going. Either one hands the run back its full height until the run
--  // settles and the row can be reached through the summary instead.
-+  // Keep live activity as quiet as settled history: the summary stays visible,
-+  // while call details are one click away. Approval remains the sole exception
-+  // because a question that needs the user must never be hidden.
-   const blocked = Boolean(approval) && pendingApprovalTool
--  const unfurled = blocked || rowOpen
--  const expanded = live ? unfurled : (persistedOpen ?? false)
-+  const expanded = blocked || rowOpen || (persistedOpen ?? false)
- 
-   return (
-     <div
-@@ -961,12 +950,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-       <ToolRunHeader
-         completedAt={completedAt}
-         live={live}
--        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
-+        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
-         open={expanded}
-         startedAt={startedAt}
-         summary={summary}
-       />
--      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
-       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
-     </div>
-   )
-diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-index 5d66c9d9d..7d178f29a 100644
---- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
-       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
-     })
-   })
++import { ProfileAvatar } from './profile-avatar'
 +
-+  it('folds a live diff until requested', async () => {
-+    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
-+    const { container } = render(<GroupHarness message={message} />)
++// The shared avatar tile: the stored `avatar` profile asset when the backend
++// has one, else the deterministic initial/color fallback. A broken image must
++// never appear — every failure path recovers to the fallback.
 +
-+    const toggle = await waitFor(() => {
-+      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
-+      expect(button).not.toBeNull()
++const requestGatewayForAgent = vi.fn()
 +
-+      return button as HTMLButtonElement
++vi.mock('@/store/gateway', () => ({
++  requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
++}))
++
++const DATA_URL = 'data:image/png;base64,QUJD'
++
++function makeIdentity(overrides: Partial<ProfileIdentity> = {}): ProfileIdentity {
++  return {
++    connectionId: 'pandora',
++    mayHaveAvatar: true,
++    hasMetadata: true,
++    initial: 'L',
++    key: 'pandora::scout',
++    nickname: 'Luna',
++    profile: 'scout',
++    ...overrides
++  }
++}
++
++const flush = () =>
++  act(async () => {
++    await Promise.resolve()
++    await Promise.resolve()
++  })
++
++const avatarImage = (container: HTMLElement) => container.querySelector<HTMLImageElement>('img')
++
++beforeEach(() => {
++  requestGatewayForAgent.mockResolvedValue({ found: true, data: DATA_URL })
++})
++
++afterEach(() => {
++  cleanup()
++  vi.clearAllMocks()
++  queryClient.clear()
++})
++
++describe('ProfileAvatar', () => {
++  it('renders the initial without calling the RPC when mayHaveAvatar is false', async () => {
++    const { container } = render(
++      <ProfileAvatar color="hsl(200 68% 58%)" identity={makeIdentity({ mayHaveAvatar: false })} />
++    )
++    await flush()
++
++    expect(requestGatewayForAgent).not.toHaveBeenCalled()
++    expect(avatarImage(container)).toBeNull()
++    expect(container.textContent).toBe('L')
++  })
++
++  it('renders the returned data URL when the asset is found', async () => {
++    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++
++    await waitFor(() => expect(avatarImage(container)).toBeTruthy())
++    expect(avatarImage(container)?.getAttribute('src')).toBe(DATA_URL)
++  })
++
++  it('requests the asset from the exact source connection and profile', async () => {
++    render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++    await flush()
++
++    expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'scout'
 +    })
-+
-+    expect(container.querySelector('[data-file-edit]')).toBeNull()
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
-+  })
- })
- 
- // The transcript rests its scaffolding at a fade, keyed off one attribute. A
-@@ -470,56 +488,40 @@ describe('transcript fade', () => {
- })
- 
- describe('live tool run', () => {
--  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
-+  it('keeps running details folded behind a summary', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
- 
-     await waitFor(() => {
--      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
-     })
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
- 
--  it('cannot be collapsed while a tool is still running', async () => {
-+  it('expands and collapses running details on request', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
- 
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
--    })
-+    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
-+    fireEvent.click(toggle)
- 
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
-+    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-   })
- 
-   // Liveness used to also require an unresolved call, which is false for the
-   // instant between one sequential call finishing and the next arriving — so a
--  // string of commands settled and re-opened between every one, unmounting the
--  // ticker and dropping its reel back to the first row instead of scrolling.
-+  // string of commands briefly switched to settled language between calls.
-   it('stays live in the gap between two sequential calls', async () => {
-     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
- 
-     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
--    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
--  })
--
--  // The ticker is a one-line window, so a row opened inside it had its output
--  // sliced to that line and then ticked away by the next call. Opening a row
--  // is a request to read it: the run gives up the window until it settles.
--  it('drops the one-line window when a row inside it is opened', async () => {
--    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
--
--    await screen.findByText('Running 2 commands')
--
--    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
--
--    expect(row).not.toBeNull()
--
--    fireEvent.click(row as Element)
--
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
--    })
--
--    // ...and the row it opened is still on screen to be read.
--    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
- })
- 
-diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index 1e97a661f..e18ec4f46 100644
---- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-+++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-@@ -656,9 +656,9 @@ function Sash({
-         // Asymmetric grab band: only 1px reaches into the leading pane so its
-         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
-         // swallowed it entirely — the pointer got col-resize instead of the
--        // thumb). The trailing side keeps a generous 7px reach; total grab
--        // width stays ~8px so the sash is no harder to hit.
--        horizontal ? 'inset-y-0 left-0 w-[8px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[8px] -translate-y-[1px]',
-+        // thumb). Keep only 4px on the trailing side: the previous 7px reach
-+        // grabbed ordinary clicks near a rail and made resizing feel twitchy.
-+        horizontal ? 'inset-y-0 left-0 w-[5px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[5px] -translate-y-[1px]',
-         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
-       )}
-       onDoubleClick={disabled ? undefined : onDoubleClick}
-diff --git a/apps/desktop/src/components/ui/context-usage-ring.tsx b/apps/desktop/src/components/ui/context-usage-ring.tsx
-new file mode 100644
-index 000000000..703aa7bad
---- /dev/null
-+++ b/apps/desktop/src/components/ui/context-usage-ring.tsx
-@@ -0,0 +1,30 @@
-+import type { ComponentProps } from 'react'
-+
-+import { cn } from '@/lib/utils'
-+
-+interface ContextUsageRingProps extends Omit<ComponentProps<'svg'>, 'children'> {
-+  percent: number
-+}
-+
-+/** Compact occupancy ring shared by the composer and status bar. */
-+export function ContextUsageRing({ className, percent, ...props }: ContextUsageRingProps) {
-+  const bounded = Math.max(0, Math.min(100, Math.round(percent)))
-+
-+  return (
-+    <svg aria-hidden className={cn('size-3', className)} viewBox="0 0 12 12" {...props}>
-+      <circle cx="6" cy="6" fill="none" opacity="0.18" r="4.5" stroke="currentColor" strokeWidth="1.5" />
-+      <circle
-+        cx="6"
-+        cy="6"
-+        fill="none"
-+        pathLength="100"
-+        r="4.5"
-+        stroke="currentColor"
-+        strokeDasharray={`${bounded} 100`}
-+        strokeLinecap="round"
-+        strokeWidth="1.5"
-+        transform="rotate(-90 6 6)"
-+      />
-+    </svg>
-+  )
-+}
-diff --git a/apps/desktop/src/lib/statusbar.test.ts b/apps/desktop/src/lib/statusbar.test.ts
-new file mode 100644
-index 000000000..017c66951
---- /dev/null
-+++ b/apps/desktop/src/lib/statusbar.test.ts
-@@ -0,0 +1,14 @@
-+import { describe, expect, it } from 'vitest'
-+
-+import { contextUsagePercent } from './statusbar'
-+
-+describe('contextUsagePercent', () => {
-+  it('returns a rounded, bounded percentage when context capacity is known', () => {
-+    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 41.4, input: 0, output: 0, total: 0 })).toBe(41)
-+    expect(contextUsagePercent({ calls: 0, context_max: 100, context_percent: 140, input: 0, output: 0, total: 0 })).toBe(100)
 +  })
 +
-+  it('returns null before the backend reports a context capacity', () => {
-+    expect(contextUsagePercent({ calls: 0, input: 0, output: 0, total: 20 })).toBeNull()
++  it('keeps the fallback when the asset is not found', async () => {
++    requestGatewayForAgent.mockResolvedValue({ found: false })
++    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++    await flush()
++
++    expect(avatarImage(container)).toBeNull()
++    expect(container.textContent).toBe('L')
++  })
++
++  it('keeps the fallback when the request rejects', async () => {
++    requestGatewayForAgent.mockRejectedValue(new Error('gateway unreachable'))
++    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++    await flush()
++
++    expect(avatarImage(container)).toBeNull()
++    expect(container.textContent).toBe('L')
++  })
++
++  it('recovers to the fallback when the image fails to load', async () => {
++    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++
++    await waitFor(() => expect(avatarImage(container)).toBeTruthy())
++
++    fireEvent.error(avatarImage(container) as HTMLImageElement)
++
++    expect(avatarImage(container)).toBeNull()
++    expect(container.textContent).toBe('L')
++  })
++
++  it('shares one cached request across repeated renders of the same identity', async () => {
++    render(
++      <>
++        <ProfileAvatar color={null} identity={makeIdentity()} />
++        <ProfileAvatar color={null} identity={makeIdentity()} />
++      </>
++    )
++    await flush()
++
++    expect(requestGatewayForAgent).toHaveBeenCalledTimes(1)
++  })
++
++  it('is decorative by default and labelled only when asked', async () => {
++    const { container } = render(
++      <>
++        <ProfileAvatar color={null} identity={makeIdentity({ mayHaveAvatar: false })} />
++        <ProfileAvatar color={null} identity={makeIdentity({ mayHaveAvatar: false })} label="Luna's avatar" />
++      </>
++    )
++    await flush()
++
++    const tiles = container.querySelectorAll('[data-slot="profile-avatar"]')
++    expect(tiles[0].getAttribute('aria-hidden')).toBe('true')
++    expect(tiles[1].getAttribute('aria-hidden')).toBeNull()
++    expect(tiles[1].getAttribute('role')).toBe('img')
++    expect(tiles[1].getAttribute('aria-label')).toBe("Luna's avatar")
 +  })
 +})
-diff --git a/apps/desktop/src/lib/statusbar.tsx b/apps/desktop/src/lib/statusbar.tsx
-index 01ca3b645..f89e3a964 100644
---- a/apps/desktop/src/lib/statusbar.tsx
-+++ b/apps/desktop/src/lib/statusbar.tsx
-@@ -41,6 +41,14 @@ export function contextBar(percent: number | undefined, width = 10): string {
-   return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`
- }
- 
-+export function contextUsagePercent(usage: UsageStats): number | null {
-+  if (!usage.context_max) {
-+    return null
-+  }
+diff --git a/apps/desktop/src/components/ui/profile-avatar.tsx b/apps/desktop/src/components/ui/profile-avatar.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..6eac87bb0eab30749a030dc5c9799fecf89f33e8
+--- /dev/null
++++ b/apps/desktop/src/components/ui/profile-avatar.tsx
+@@ -0,0 +1,101 @@
++import { useQuery } from '@tanstack/react-query'
++import { useState } from 'react'
 +
-+  return Math.max(0, Math.min(100, Math.round(usage.context_percent ?? 0)))
++import type { ProfileIdentity } from '@/lib/profile-identity'
++import { profileColorSoft } from '@/lib/profile-color'
++import { queryClient } from '@/lib/query-client'
++import { cn } from '@/lib/utils'
++import { requestGatewayForAgent } from '@/store/gateway'
++
++// The one avatar tile every surface shares (profile rail squares, session
++// rows): the stored `avatar` profile asset when the backend reports one, else
++// the deterministic initial/color fallback. Every failure path — asset
++// missing, gateway unreachable, image decode error — recovers to the
++// fallback; a broken-image glyph must never appear.
++
++interface ProfileAssetResult {
++  found?: boolean
++  data?: string
 +}
 +
- export function usageContextLabel(usage: UsageStats): string {
-   if (usage.context_max) {
-     return `${compactNumber(usage.context_used ?? 0)}/${compactNumber(usage.context_max)}`
-@@ -50,12 +58,12 @@ export function usageContextLabel(usage: UsageStats): string {
- }
- 
- export function contextBarLabel(usage: UsageStats): string {
--  if (!usage.context_max) {
-+  const pct = contextUsagePercent(usage)
++// Bounded staleness so a newly edited avatar appears without relaunching
++// Hermes: cached per exact (connectionId, profile), refetched on focus once
++// the window has passed. Bot Mode remains the source of truth for edits.
++const AVATAR_STALE_MS = 60_000
 +
-+  if (pct === null) {
-     return ''
-   }
- 
--  const pct = Math.max(0, Math.min(100, Math.round(usage.context_percent ?? 0)))
--
-   return `[${contextBar(usage.context_percent)}] ${pct}%`
- }
- 
-diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
-index 584c00a57..35b4e5b2b 100644
---- a/apps/desktop/src/store/reasoning-disclosure.ts
-+++ b/apps/desktop/src/store/reasoning-disclosure.ts
-@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
- 
- import { persistBoolean, storedBoolean } from '@/lib/storage'
- 
--const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
-+const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
- 
- /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
--export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
-+export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
- 
- $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
- 
-diff --git a/apps/desktop/src/store/statusbar-prefs.ts b/apps/desktop/src/store/statusbar-prefs.ts
-index 7318e18d7..12d6da621 100644
---- a/apps/desktop/src/store/statusbar-prefs.ts
-+++ b/apps/desktop/src/store/statusbar-prefs.ts
-@@ -15,13 +15,12 @@ export function toggleStatusbarVisible() {
- // Items the bar hides until the user turns them on from its context menu. The
- // bar's job is to answer "is the backend healthy, where am I, what's it doing" —
- // route shortcuts (cron/webhooks/agents), the terminal toggle, and the approval
--// pill are navigation, not status, so they start out of the way. The per-turn
--// session readouts (running/session timers, context meter) are diagnostics most
--// users don't watch, so they start hidden too and the bar stays quiet mid-turn.
-+// pill are navigation, not status, so they start out of the way. The optional
-+// per-turn timers are diagnostics most users don't watch, so they start hidden
-+// too and the bar stays quiet mid-turn.
- export const STATUSBAR_HIDDEN_BY_DEFAULT: readonly string[] = [
-   'agents',
-   'approval-mode',
--  'context-usage',
-   'cron',
-   'running-timer',
-   'session-timer',
-diff --git a/apps/desktop/src/styles.css b/apps/desktop/src/styles.css
-index 53efc2847..9aeac7fd9 100644
---- a/apps/desktop/src/styles.css
-+++ b/apps/desktop/src/styles.css
-@@ -491,10 +491,14 @@
-     --composer-ring-strength: 1;
-     --composer-surface-pad-x: 0.5rem;
-     --composer-surface-pad-y: 0.3125rem;
--    --composer-input-min-height: 1.625rem;
-+    /* Three text lines at rest (3lh) plus the editor's 0.25rem block padding.
-+       It still grows naturally up to the existing max-height. */
-+    --composer-input-min-height: calc(3lh + 0.5rem);
-     --composer-input-max-height: 9.375rem;
-     --composer-input-inline-min-width: 8rem;
--    --composer-fallback-height: 2.75rem;
-+    /* Pre-measure paint for the same three-line composer: old one-line fallback
-+       plus the two additional 1.21875rem text lines. */
-+    --composer-fallback-height: 5.1875rem;
-     --composer-measured-height: calc(0.5rem + var(--composer-shell-pad-block-end) + var(--composer-fallback-height));
-     --composer-surface-measured-height: var(--composer-fallback-height);
-     --thread-viewport-height: max(
-diff --git a/apps/desktop/src/themes/skin.test.ts b/apps/desktop/src/themes/skin.test.ts
-index 353a690ad..1c3407ae6 100644
---- a/apps/desktop/src/themes/skin.test.ts
-+++ b/apps/desktop/src/themes/skin.test.ts
-@@ -28,6 +28,24 @@ describe('skinToDesktopTheme', () => {
-     expect(theme.colors.foreground).toBe('#ffffff')
-   })
- 
-+  it('honors explicit desktop surface colors without changing terminal colors', () => {
-+    const theme = withColors('lab', {
-+      background: '#f7f7f7',
-+      ui_text: '#3c3c3c',
-+      desktop_background: '#ffffff',
-+      desktop_sidebar_background: '#eeeeee',
-+      desktop_panel_background: '#f3f3f3',
-+      desktop_foreground: '#242424',
-+      desktop_muted_foreground: '#555555'
-+    })!
++export function ProfileAvatar({
++  className,
++  color,
++  identity,
++  label,
++  tint = 22,
++  title
++}: {
++  className?: string
++  /** Resolved profile color (null → neutral, same as the rail squares). */
++  color: null | string
++  identity: ProfileIdentity
++  /** Accessible name. Omit when the surrounding button/row already carries
++   *  the label — the tile then stays decorative (aria-hidden). */
++  label?: string
++  /** Fallback tint strength, matching the rail's active/at-rest fills. */
++  tint?: number
++  /** Native hover tooltip — how a row surfaces the owner's nickname without
++   *  spending a second line of height on it. */
++  title?: string
++}) {
++  const [failedSrc, setFailedSrc] = useState<null | string>(null)
 +
-+    expect(theme.colors.background).toBe('#ffffff')
-+    expect(theme.colors.sidebarBackground).toBe('#eeeeee')
-+    expect(theme.colors.card).toBe('#f3f3f3')
-+    expect(theme.colors.foreground).toBe('#242424')
-+    expect(theme.colors.mutedForeground).toBe('#555555')
++  const { data } = useQuery(
++    {
++      enabled: identity.mayHaveAvatar,
++      queryFn: () =>
++        requestGatewayForAgent<ProfileAssetResult>(identity.connectionId, identity.profile, 'profiles.get_asset', {
++          asset: 'avatar',
++          name: identity.profile
++        }),
++      queryKey: ['profile-avatar', identity.key],
++      refetchOnWindowFocus: true,
++      retry: false,
++      staleTime: AVATAR_STALE_MS
++    },
++    // The shared client explicitly (not the context provider): non-provider
++    // hosts (tests, isolated surfaces) still hit the same per-identity cache,
++    // so N session rows for one profile issue one request.
++    queryClient
++  )
++
++  const src =
++    identity.mayHaveAvatar && data?.found && typeof data.data === 'string' && data.data && data.data !== failedSrc
++      ? data.data
++      : null
++
++  const hue = color ?? 'var(--ui-text-quaternary)'
++
++  return (
++    <span
++      aria-hidden={label ? undefined : true}
++      aria-label={label}
++      className={cn(
++        'relative grid shrink-0 select-none place-items-center overflow-hidden rounded-[3px] font-semibold uppercase leading-none',
++        className
++      )}
++      data-slot="profile-avatar"
++      role={label ? 'img' : undefined}
++      style={{ backgroundColor: profileColorSoft(hue, tint), color: color ?? undefined }}
++      title={title}
++    >
++      {src ? (
++        <img
++          alt=""
++          className="absolute inset-0 size-full object-cover"
++          draggable={false}
++          onError={() => setFailedSrc(src)}
++          src={src}
++        />
++      ) : (
++        identity.initial
++      )}
++    </span>
++  )
++}
+diff --git a/apps/desktop/src/lib/profile-identity.test.ts b/apps/desktop/src/lib/profile-identity.test.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..299a40b9476faec5d8246fe91c27634b160c624b
+--- /dev/null
++++ b/apps/desktop/src/lib/profile-identity.test.ts
+@@ -0,0 +1,135 @@
++import { describe, expect, it } from 'vitest'
++
++import type { DesktopAgentRoster } from '@/global'
++
++import { profileIdentityKey, resolveProfileIdentity } from './profile-identity'
++
++// The pure identity resolver: roster metadata in, one stable profile identity
++// out. Everything the rail and session rows paint (nickname, avatar flag,
++// fallback initial) resolves here so both surfaces agree byte-for-byte.
++
++const roster: DesktopAgentRoster = {
++  agents: [
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'scout',
++      handle: 'scout-local',
++      profileMetadata: { display_name: 'Luna', has_avatar: true }
++    },
++    {
++      connectionId: 'pandora',
++      connectionKind: 'remote',
++      connectionLabel: 'Pandora',
++      profile: 'scout',
++      handle: 'scout-pandora',
++      profileMetadata: { display_name: 'Pandora Scout', has_avatar: false }
++    },
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'plain',
++      handle: 'plain'
++      // No metadata: an old gateway that only enumerates names.
++    },
++    {
++      connectionId: 'local',
++      connectionKind: 'local',
++      connectionLabel: 'This device',
++      profile: 'blankname',
++      handle: 'blankname',
++      profileMetadata: { display_name: '   ', has_avatar: true }
++    }
++  ],
++  sources: [
++    { connectionId: 'local', kind: 'local', label: 'This device', reachable: true },
++    { connectionId: 'pandora', kind: 'remote', label: 'Pandora', reachable: true }
++  ]
++}
++
++describe('resolveProfileIdentity', () => {
++  it('matches by exact (connectionId, profile), keeping duplicate names source-correct', () => {
++    const local = resolveProfileIdentity({ connectionId: 'local', profile: 'scout', roster })
++    const pandora = resolveProfileIdentity({ connectionId: 'pandora', profile: 'scout', roster })
++
++    expect(local.nickname).toBe('Luna')
++    expect(local.mayHaveAvatar).toBe(true)
++    expect(pandora.nickname).toBe('Pandora Scout')
++    expect(pandora.mayHaveAvatar).toBe(false)
++    expect(local.key).not.toBe(pandora.key)
 +  })
 +
-   it('buckets dark vs light from background luminance', () => {
-     const dark = withColors('d', { background: '#111111', banner_text: '#eeeeee' })!
-     const light = withColors('l', { background: '#fafafa', banner_text: '#111111' })!
-diff --git a/apps/desktop/src/themes/skin.ts b/apps/desktop/src/themes/skin.ts
-index 61fa71122..de80ced50 100644
---- a/apps/desktop/src/themes/skin.ts
-+++ b/apps/desktop/src/themes/skin.ts
-@@ -54,8 +54,13 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
-   // Background is the backdrop every other token flattens alpha over. Skins are
-   // terminal-first so most only tint chrome — `status_bar_bg` is the closest
-   // thing to an app surface; `background` is the explicit opt-in for GUI authors.
--  const seededBg = pick(colors, ['background', 'status_bar_bg'], '#000000')
--  const foregroundSeed = pick(colors, ['ui_text', 'banner_text', 'status_bar_text'], seededBg ?? '#000000')
-+  const seededBg = pick(colors, ['desktop_background', 'background', 'status_bar_bg'], '#000000')
++  it('uses the trimmed display_name as the nickname', () => {
++    const identity = resolveProfileIdentity({
++      connectionId: 'local',
++      profile: 'scout',
++      roster: {
++        ...roster,
++        agents: [{ ...roster.agents[0], profileMetadata: { display_name: '  Luna  ', has_avatar: true } }]
++      }
++    })
 +
-+  const foregroundSeed = pick(
-+    colors,
-+    ['desktop_foreground', 'ui_text', 'banner_text', 'status_bar_text'],
-+    seededBg ?? '#000000'
-+  )
- 
-   // No background given: bucket by foreground luminance (light text ⇒ dark app).
-   const background = seededBg ?? (foregroundSeed && luminance(foregroundSeed) > 0.5 ? '#141414' : '#f7f7f8')
-@@ -65,21 +70,27 @@ export function skinToDesktopTheme(skin: HermesSkin): DesktopTheme | null {
-   const accentSeed =
-     pick(colors, ['ui_accent', 'banner_accent', 'banner_title'], background) ?? mix(foreground, background, 0.55)
- 
--  const sidebar = mix(background, foreground, dark ? 0.02 : 0.012)
-+  const sidebar =
-+    pick(colors, ['desktop_sidebar_background'], background) ?? mix(background, foreground, dark ? 0.02 : 0.012)
++    expect(identity.nickname).toBe('Luna')
++  })
 +
-+  const card =
-+    pick(colors, ['desktop_panel_background'], background) ?? mix(background, foreground, dark ? 0.04 : 0.025)
++  it('falls back to the profile name when display_name is blank or missing', () => {
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'blankname', roster }).nickname).toBe('blankname')
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'plain', roster }).nickname).toBe('plain')
++  })
 +
-   const accent = ensureContrast(accentSeed, sidebar, ACCENT_MIN_CONTRAST)
- 
-   const border =
-     pick(colors, ['ui_border', 'banner_border'], background) ?? mix(background, foreground, dark ? 0.16 : 0.14)
- 
-   const mutedForeground =
--    pick(colors, ['banner_dim', 'session_border'], background) ?? mix(foreground, background, 0.45)
-+    pick(colors, ['desktop_muted_foreground', 'banner_dim', 'session_border'], background) ??
-+    mix(foreground, background, 0.45)
- 
-   const destructive = pick(colors, ['ui_error'], background) ?? '#e25563'
- 
-   const palette: DesktopThemeColors = {
-     background,
-     foreground,
--    card: mix(background, foreground, dark ? 0.04 : 0.025),
-+    card,
-     cardForeground: foreground,
-     muted: mix(background, foreground, dark ? 0.06 : 0.04),
-     mutedForeground,
-diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
-index 7444ebf2f..6fb86f1f8 100644
---- a/hermes_cli/web_server.py
-+++ b/hermes_cli/web_server.py
-@@ -18138,6 +18138,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
-         result["customCSS"] = custom_css
-     if component_styles:
-         result["componentStyles"] = component_styles
-+    for key in ("terminalBackground", "terminalForeground"):
-+        value = data.get(key)
-+        if isinstance(value, str) and value.strip():
-+            result[key] = value
-     return result
- 
- 
-diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 796719a6e..065e08fc7 100644
---- a/tests/hermes_cli/test_web_server.py
-+++ b/tests/hermes_cli/test_web_server.py
-@@ -3755,6 +3755,19 @@ class TestNormaliseThemeExtensions:
-         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
-         assert len(r2["customCSS"]) <= 32 * 1024
- 
-+    def test_terminal_colors_reach_custom_theme_clients(self):
-+        """A user theme can control the xterm canvas and selection contrast."""
-+        from hermes_cli.web_server import _normalise_theme_definition
++  it('rules an avatar out only when the backend says so explicitly', () => {
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'blankname', roster }).mayHaveAvatar).toBe(true)
++    expect(resolveProfileIdentity({ connectionId: 'pandora', profile: 'scout', roster }).mayHaveAvatar).toBe(false)
++  })
 +
-+        result = _normalise_theme_definition({
-+            "name": "light-terminal",
-+            "terminalBackground": "#f7f7f7",
-+            "terminalForeground": "#252526",
-+        })
++  // REST `/api/profiles` — the roster's actual source — omits `has_avatar`
++  // entirely, so "absent" must mean "probe it", not "no avatar". Treating the
++  // two alike left every real profile stuck on its initial.
++  it('probes when the roster carries no has_avatar flag', () => {
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'plain', roster }).mayHaveAvatar).toBe(true)
 +
-+        assert result["terminalBackground"] == "#f7f7f7"
-+        assert result["terminalForeground"] == "#252526"
++    const noFlag = {
++      ...roster,
++      agents: [{ ...roster.agents[0], profileMetadata: { display_name: 'Luna' } }]
++    }
 +
- 
-     def test_component_styles_per_bucket(self):
-         from hermes_cli.web_server import _normalise_theme_definition
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: roster.agents[0].profile, roster: noFlag }).mayHaveAvatar).toBe(true)
++  })
++
++  it('flags whether the roster carried metadata at all', () => {
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'scout', roster }).hasMetadata).toBe(true)
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'plain', roster }).hasMetadata).toBe(false)
++  })
++
++  it('returns a usable fallback identity without a roster', () => {
++    const identity = resolveProfileIdentity({ connectionId: null, profile: 'scout', roster: null })
++
++    expect(identity.nickname).toBe('scout')
++    expect(identity.mayHaveAvatar).toBe(true)
++    expect(identity.hasMetadata).toBe(false)
++    expect(identity.initial).toBe('s')
++  })
++
++  it('attributes a null connection id only to an unambiguous profile name', () => {
++    // "scout" lives on two gateways: no safe owner, stay on the fallback.
++    expect(resolveProfileIdentity({ connectionId: null, profile: 'scout', roster }).hasMetadata).toBe(false)
++    // "blankname" exists once: a legacy row without a connection id is its.
++    expect(resolveProfileIdentity({ connectionId: null, profile: 'blankname', roster }).mayHaveAvatar).toBe(true)
++  })
++
++  it('derives the fallback initial from the nickname', () => {
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'scout', roster }).initial).toBe('L')
++    expect(resolveProfileIdentity({ connectionId: 'local', profile: '--!', roster: null }).initial).toBe('?')
++  })
++
++  it('never returns a blank nickname', () => {
++    expect(resolveProfileIdentity({ connectionId: null, profile: '', roster: null }).nickname).toBe('default')
++  })
++
++  it('builds a stable source-qualified key', () => {
++    expect(profileIdentityKey('local', 'scout')).toBe('local::scout')
++    expect(profileIdentityKey(null, 'scout')).toBe('::scout')
++  })
++})
+diff --git a/apps/desktop/src/lib/profile-identity.ts b/apps/desktop/src/lib/profile-identity.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..04e1bf8aa1dca6e82063cbcbe9b2062f77a33452
+--- /dev/null
++++ b/apps/desktop/src/lib/profile-identity.ts
+@@ -0,0 +1,104 @@
++import type { DesktopAgentRoster, DesktopRosterAgent, RosterProfileMetadata } from '@/global'
++
++// One profile identity for every surface that paints a profile (the rail and
++// the session rows): resolve the exact (connectionId, profile) row of the
++// fleet roster into a nickname, an avatar flag, and a deterministic fallback
++// initial. Pure — no store, no network — so both surfaces stay testable and
++// byte-identical.
++
++export interface ProfileIdentity {
++  connectionId: null | string
++  profile: string
++  /** Trimmed backend display_name, else the profile name. Never blank. */
++  nickname: string
++  /** True only when the backend reports a stored avatar asset. */
++  mayHaveAvatar: boolean
++  /** True when the roster carried metadata for this exact agent. */
++  hasMetadata: boolean
++  /** Stable source-qualified cache key for this exact (connection, profile). */
++  key: string
++  /** Deterministic single-character fallback (same rule as the rail squares). */
++  initial: string
++}
++
++/** Source-qualified key — never keyed by profile name alone (duplicate names
++ *  on two gateways must not share avatars or nicknames). */
++export function profileIdentityKey(connectionId: null | string, profile: string): string {
++  return `${connectionId ?? ''}::${profile}`
++}
++
++function fallbackInitial(name: string): string {
++  return name.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'
++}
++
++function findRosterAgent(
++  roster: DesktopAgentRoster | null,
++  connectionId: null | string,
++  profile: string
++): DesktopRosterAgent | undefined {
++  if (!roster) {
++    return undefined
++  }
++
++  if (connectionId != null) {
++    return roster.agents.find(agent => agent.connectionId === connectionId && agent.profile === profile)
++  }
++
++  // Legacy rows (pre-registry sessions, single-gateway setups) carry no
++  // connection id. Only an unambiguous profile name can be attributed safely;
++  // duplicates across gateways stay on the fallback identity.
++  const matches = roster.agents.filter(agent => agent.profile === profile)
++
++  return matches.length === 1 ? matches[0] : undefined
++}
++
++/** Build an identity from metadata already in hand (a FleetAgent row).
++ *  `fallbackLabel` preserves an existing surface label (`profileLabel`) when
++ *  the metadata is absent, so the initial and nickname never regress. */
++export function profileIdentityFromMetadata({
++  connectionId,
++  fallbackLabel,
++  metadata,
++  profile
++}: {
++  connectionId: null | string
++  fallbackLabel?: string
++  metadata?: RosterProfileMetadata
++  profile: string
++}): ProfileIdentity {
++  const nickname = (metadata?.display_name ?? '').trim() || (fallbackLabel ?? '').trim() || profile.trim() || 'default'
++
++  return {
++    connectionId,
++    // Only an explicit `false` rules an avatar out. The desktop roster is built
++    // from REST `/api/profiles`, which omits `has_avatar` entirely (only the
++    // gateway RPC computes it), so treating "absent" as "no avatar" left every
++    // profile on its initial. Unknown means probe: `found: false` still falls
++    // back, and the asset query is cached per (connection, profile).
++    mayHaveAvatar: metadata?.has_avatar !== false,
++    hasMetadata: metadata != null,
++    initial: fallbackInitial(nickname),
++    key: profileIdentityKey(connectionId, profile),
++    nickname,
++    profile
++  }
++}
++
++export function resolveProfileIdentity({
++  connectionId,
++  fallbackLabel,
++  profile,
++  roster
++}: {
++  connectionId: null | string
++  fallbackLabel?: string
++  profile: string
++  roster: DesktopAgentRoster | null
++}): ProfileIdentity {
++  return profileIdentityFromMetadata({
++    connectionId,
++    fallbackLabel,
++    metadata: findRosterAgent(roster, connectionId, profile)?.profileMetadata,
++    profile
++  })
++}
