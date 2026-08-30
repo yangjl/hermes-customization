@@ -29,10 +29,11 @@ called done. Read it before adding a customization.
 - `patches/terminal-theme-fields.patch` — temporary compatibility patch for
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
-  five-project recent list, panel sizing, profile switching, and tests. The
-  context meter and cross-surface skin support are native Hermes now and no
-  longer patched; the skin's `desktop_*` color overrides are ignored by the
-  native skin SDK. The three-line composer sizing was dropped as well.
+  five-project recent list, profile avatars and nicknames in the rail and
+  session rows, folded live tool runs, panel sizing, profile switching, and
+  tests. The context meter and cross-surface skin support are native Hermes now
+  and no longer patched; the skin's `desktop_*` color overrides are ignored by
+  the native skin SDK. The three-line composer sizing was dropped as well.
 - `install.sh` — installs and activates the theme.
 - `install-desktop-app.sh` — packages, installs, pins, and opens a standalone
   macOS `Hermes.app`.
@@ -128,13 +129,18 @@ newly applied, restart `hermes dashboard` as well.
 
 `hermes update` autostashes local source changes, fast-forwards, and rebuilds
 the Desktop app from the clean tree. The customizations are a source patch, so
-every update silently ships a Hermes without them — the context meter, composer
-sizing, and profile switching all revert, and the stashed copy is easy to miss.
+every update silently ships a Hermes without them — the five-project fold,
+profile avatars, panel sizing, and profile switching all revert, and the
+stashed copy is easy to miss.
 
-`scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies the
-patch with a three-way merge, rebuilds the app, and reinstalls it. It exits
-silently when the patch is already present, and it refuses to touch a source
-tree with uncommitted changes rather than tangling work in progress.
+`scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies every
+patch in `patches/` with a three-way merge, rebuilds the app, and reinstalls it.
+It exits silently when they are already present, and it refuses to touch a
+source tree with uncommitted changes rather than tangling work in progress.
+
+The script needs the gateway running to fire on schedule — `hermes cron status`
+reports `Gateway is not running` when it cannot, and the job silently never
+executes. Install it as a service with `hermes gateway install`.
 
 Schedule it weekly, before the work week:
 
@@ -142,6 +148,16 @@ Schedule it weekly, before the work week:
 hermes cron create "0 6 * * 1" --no-agent \
   --script reapply-desktop-patch.sh \
   --name "Restore Desktop patch after Hermes update"
+```
+
+A rebuild does **not** refresh `~/.hermes/desktop-build-stamp.json`. To confirm
+a rebuild actually shipped, grep the artifact for a string literal the patch
+emits (minified identifiers will not match):
+
+```bash
+npx --yes @electron/asar extract \
+  /Applications/Hermes.app/Contents/Resources/app.asar /tmp/asarcheck
+grep -rl 'profile-avatar' /tmp/asarcheck   # data-slot survives minification
 ```
 
 Weekly matches how often updates actually land. Checking more often does not

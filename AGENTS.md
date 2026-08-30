@@ -160,7 +160,7 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 
 ## 7. Patch status vs native Hermes
 
-Last verified 2026-08-28 against Hermes `00bbfc690`. Re-verify after any
+Last verified 2026-08-30 against Hermes `4f2254350`. Re-verify after any
 Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
 means the tree is unpatched and the patch is still needed; `git apply --check
 --reverse` succeeding means it is applied. When a feature lands natively,
@@ -176,6 +176,9 @@ section:
 | Feature in patch | Native status |
 |---|---|
 | Five-project sidebar fold (`foldProjectOverview` + show-more footer) | Absent upstream |
+| Project reorder keeps unlisted projects (`reorderProjects` append) | Absent — upstream still persists only the dragged ids |
+| Profile avatar + nickname identity (`profile-identity.ts`, `profile-avatar.tsx`, rail, session rows, `global.d.ts`) | Absent — neither file exists upstream |
+| Sidebar-wide fleet roster mount (`useFleetRoster(true)` in `sidebar/index.tsx`) | Absent — roster refresh is still fleet-conditional |
 | Sidebar icon sizing tweak (`size-4` → `size-5`) | Absent |
 | Profile-switch StrictMode fix (`use-on-profile-switch.ts` + test) | Absent — first-effect ref bug still upstream |
 | Folded live tool runs (ticker removal in `fallback.tsx` + tests) | Absent — `run-ticker.tsx` still wired in |

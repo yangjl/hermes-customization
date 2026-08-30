@@ -25,7 +25,14 @@ if [[ -z "$repo_dir" ]]; then
   fi
 fi
 
-patch_file="$repo_dir/patches/desktop-research-workflow.patch"
+# Every patch this repo overlays, in apply order. `terminal-theme-fields` is a
+# strict subset of the desktop patch's web_server.py hunk, so on a normal tick
+# it is already applied by the time we reach it and is skipped — listing it
+# still matters for the day upstream decouples those files.
+patch_names=(
+  desktop-research-workflow
+  terminal-theme-fields
+)
 installer="$repo_dir/install-desktop-app.sh"
 
 fail() {
@@ -33,7 +40,9 @@ fail() {
   exit 1
 }
 
-[[ -f "$patch_file" ]] || fail "patch not found at $patch_file"
+for name in "${patch_names[@]}"; do
+  [[ -f "$repo_dir/patches/$name.patch" ]] || fail "patch not found at $repo_dir/patches/$name.patch"
+done
 [[ -d "$hermes_source/.git" ]] || fail "Hermes source not found at $hermes_source"
 
 cd "$hermes_source"
@@ -42,28 +51,43 @@ cd "$hermes_source"
 # restore it every tick (idempotent, silent when already applied).
 "$script_dir/harden-hermes-python-env.sh"
 
-# Already applied: nothing to say. This is the common case on every tick.
-if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+applied=()
+for name in "${patch_names[@]}"; do
+  patch_file="$repo_dir/patches/$name.patch"
+
+  # Already applied: nothing to say. This is the common case on every tick.
+  if git apply --reverse --check "$patch_file" >/dev/null 2>&1; then
+    continue
+  fi
+
+  # Only reconcile a tree we did not partially modify ourselves. A dirty tree
+  # means someone is mid-edit; reapplying on top would tangle their work. Once
+  # we have applied a patch ourselves the tree is legitimately dirty, so this
+  # guard only speaks for changes that were there before we started.
+  if [[ ${#applied[@]} -eq 0 && -n "$(git status --porcelain)" ]]; then
+    fail "Hermes source has uncommitted changes; reapply skipped. Inspect $hermes_source"
+  fi
+
+  if ! git apply --3way "$patch_file" >/dev/null 2>&1; then
+    if [[ -n "$(git status --porcelain)" ]]; then
+      # --3way leaves conflict markers in the tree on failure. Put the source
+      # back the way we found it rather than leaving Hermes unbuildable. This
+      # also discards any earlier patch from this run — all or nothing.
+      git checkout -- . >/dev/null 2>&1 || true
+      git clean -fd >/dev/null 2>&1 || true
+    fi
+    fail "$name no longer applies to this Hermes version; resolve by hand against $patch_file"
+  fi
+
+  applied+=("$name")
+done
+
+# Nothing drifted: stay silent so a scheduled run produces no notification.
+if [[ ${#applied[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# Only reconcile a tree we did not partially modify ourselves. A dirty tree
-# means someone is mid-edit; reapplying on top would tangle their work.
-if [[ -n "$(git status --porcelain)" ]]; then
-  fail "Hermes source has uncommitted changes; reapply skipped. Inspect $hermes_source"
-fi
-
-if ! git apply --3way "$patch_file" >/dev/null 2>&1; then
-  if [[ -n "$(git status --porcelain)" ]]; then
-    # --3way leaves conflict markers in the tree on failure. Put the source
-    # back the way we found it rather than leaving Hermes unbuildable.
-    git checkout -- . >/dev/null 2>&1 || true
-    git clean -fd >/dev/null 2>&1 || true
-  fi
-  fail "patch no longer applies to this Hermes version; resolve by hand against $patch_file"
-fi
-
-echo "Reapplied Desktop Research workflow patch after a Hermes update."
+echo "Reapplied after a Hermes update: ${applied[*]}"
 
 # The patch is only half the job — the installed app was packaged from the
 # unpatched tree and still needs replacing.
