@@ -40,6 +40,13 @@ fail() {
   exit 1
 }
 
+# The paths a patch touches, for scoping the dirty-tree guard. Reads the
+# `diff --git a/<path> b/<path>` headers; the b-side is the post-image, which
+# is what a reapplied patch writes.
+patch_paths() {
+  sed -n 's|^diff --git a/.* b/||p' "$1"
+}
+
 for name in "${patch_names[@]}"; do
   [[ -f "$repo_dir/patches/$name.patch" ]] || fail "patch not found at $repo_dir/patches/$name.patch"
 done
@@ -64,17 +71,34 @@ for name in "${patch_names[@]}"; do
   # means someone is mid-edit; reapplying on top would tangle their work. Once
   # we have applied a patch ourselves the tree is legitimately dirty, so this
   # guard only speaks for changes that were there before we started.
-  if [[ ${#applied[@]} -eq 0 && -n "$(git status --porcelain)" ]]; then
-    fail "Hermes source has uncommitted changes; reapply skipped. Inspect $hermes_source"
+  #
+  # Scoped to the paths our patches touch. Upstream ships two contributor files
+  # whose names differ only in case (agent@agents-Mac-mini.local and
+  # agent@Agents-Mac-mini.local); on a case-insensitive macOS filesystem only
+  # one can exist, so git reports the other as permanently modified and
+  # restoring either dirties its twin. An unscoped guard would refuse forever
+  # over a file no patch of ours goes near.
+  if [[ ${#applied[@]} -eq 0 ]]; then
+    conflicting="$(git status --porcelain -- $(patch_paths "$patch_file"))"
+    if [[ -n "$conflicting" ]]; then
+      fail "Hermes source has uncommitted changes to patched files; reapply skipped. Inspect $hermes_source"
+    fi
   fi
 
   if ! git apply --3way "$patch_file" >/dev/null 2>&1; then
-    if [[ -n "$(git status --porcelain)" ]]; then
-      # --3way leaves conflict markers in the tree on failure. Put the source
-      # back the way we found it rather than leaving Hermes unbuildable. This
-      # also discards any earlier patch from this run — all or nothing.
-      git checkout -- . >/dev/null 2>&1 || true
-      git clean -fd >/dev/null 2>&1 || true
+    # --3way leaves conflict markers in the tree on failure. Put the source
+    # back the way we found it rather than leaving Hermes unbuildable. Scoped
+    # to the paths this run touched, so an unrelated local edit survives; the
+    # rollback covers every patch applied so far, making a run all-or-nothing.
+    rollback_paths=()
+    for prior in "${applied[@]}" "$name"; do
+      while IFS= read -r p; do
+        [[ -n "$p" ]] && rollback_paths+=("$p")
+      done < <(patch_paths "$repo_dir/patches/$prior.patch")
+    done
+    if [[ ${#rollback_paths[@]} -gt 0 ]]; then
+      git checkout -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
+      git clean -fd -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
     fi
     fail "$name no longer applies to this Hermes version; resolve by hand against $patch_file"
   fi
