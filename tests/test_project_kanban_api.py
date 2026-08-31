@@ -877,6 +877,78 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(moved.status_code, 200, moved.text)
         self.assertEqual(moved.json()["workflow_lane"], "review")
 
+    def test_pk003_dispatcher_claim_race_reclaims_stale_claim_and_moves(self):
+        # PK-003, fixed: a human-managed card sitting at native "ready" with
+        # no active claim moves fine (see
+        # test_pk003_externally_created_human_card_at_ready_status_moves).
+        # But nothing in hermes_cli.kanban_db's claim path (kb.claim_task,
+        # and the dispatcher's ready-loop that calls it) knows about the
+        # project_kanban.human_managed body convention -- it is a plugin-side
+        # JSON convention layered entirely inside the `body` column, which
+        # the native claim/dispatch machinery never inspects. So the native
+        # dispatcher (or a worker/terminal pulling its lane) can claim a
+        # human-managed ready card the instant before a human drags it,
+        # setting claim_lock/worker_pid non-null.
+        #
+        # Before the fix, _move_human_lane's guard treated that claim as
+        # sacrosanct and 409'd the human's own move -- indistinguishable from
+        # the PK-001 symptom, but with a different precondition (the original
+        # bug and repro are documented in the issue log). After the fix, a
+        # stale/racing claim on a human_managed card is cleared as part of
+        # the same move transaction and the move proceeds normally.
+        body = json.dumps({
+            "details": "Build AI-chat feature for jyanglab.com",
+            "project_kanban": {
+                "human_managed": True,
+                "lane": "next",
+                "project_id": "research",
+            },
+        })
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(
+                conn,
+                title="Build AI-chat feature for jyanglab.com",
+                body=body,
+                tenant="main-research",
+                created_by="user",
+                board="todos",
+            )
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET status = 'ready', block_kind = NULL, "
+                    "claim_lock = NULL, worker_pid = NULL WHERE id = ?",
+                    (task_id,),
+                )
+            # Simulate the native dispatcher (or a worker/terminal claiming
+            # its assigned lane) racing the human: it has no idea this card
+            # is human_managed, because that flag lives only in the body
+            # JSON, which claim_task never reads.
+            claimed = kb.claim_task(conn, task_id, claimer="test-dispatcher")
+            self.assertIsNotNone(claimed, "dispatcher claim should succeed on a bare 'ready' row")
+            self.assertEqual(claimed.status, "running")
+            self.assertIsNotNone(claimed.claim_lock)
+        finally:
+            conn.close()
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task_id}",
+            json={"lane": "doing"},
+        )
+        # Fixed behavior: the stale/racing native claim is reclaimed for the
+        # human move instead of 409ing.
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["workflow_lane"], "doing")
+
+        conn = kb.connect(board="todos")
+        try:
+            after = kb.get_task(conn, task_id)
+        finally:
+            conn.close()
+        assert after is not None
+        self.assertIsNone(after.claim_lock)
+        self.assertIsNone(after.worker_pid)
+
     def test_non_human_managed_task_at_ready_status_remains_read_only(self):
         # A native/autonomous task (no project_kanban.human_managed metadata)
         # must still be rejected by this endpoint, even at a non-blocked

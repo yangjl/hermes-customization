@@ -484,16 +484,23 @@ def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
         workflow = metadata.get("project_kanban")
         # Human lane state (project_kanban.lane) is tracked independently of the
         # native worker-lifecycle `status` column. A human-managed card must be
-        # movable regardless of its native status; only an active native claim
-        # (a worker currently holding the task) blocks the move. Non-human
-        # (native/autonomous) tasks remain read-only through this endpoint.
-        if (
-            not isinstance(workflow, dict)
-            or workflow.get("human_managed") is not True
-            or current["claim_lock"]
-            or current["worker_pid"]
-        ):
+        # movable regardless of its native status. Non-human (native/autonomous)
+        # tasks remain read-only through this endpoint.
+        if not isinstance(workflow, dict) or workflow.get("human_managed") is not True:
             raise HTTPException(status_code=409, detail="Native worker lifecycle tasks are read-only")
+        if current["claim_lock"] or current["worker_pid"]:
+            # PK-003: hermes_cli.kanban_db's claim_task() has no knowledge of
+            # the plugin-side project_kanban.human_managed body convention,
+            # so the native dispatcher can claim a human-managed card left at
+            # bare "ready" status exactly like any other ready task. That
+            # claim is stale/racing relative to the human's own lane move --
+            # clear it (mirroring _park_for_human's pattern) and proceed,
+            # instead of 409ing the human's own card.
+            conn.execute(
+                "UPDATE tasks SET claim_lock = NULL, claim_expires = NULL, "
+                "worker_pid = NULL WHERE id = ?",
+                (task_id,),
+            )
         workflow["lane"] = lane
         metadata["project_kanban"] = workflow
         updated = conn.execute(
