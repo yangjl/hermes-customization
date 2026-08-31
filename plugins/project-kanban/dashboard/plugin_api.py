@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from hermes_cli import kanban_db as kb
 
@@ -30,6 +30,17 @@ NATIVE_STATUS_LANES = {
     "blocked": "waiting",
     "review": "review",
 }
+DUE_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_valid_due_date(value: str) -> bool:
+    if not DUE_DATE_RE.match(value):
+        return False
+    try:
+        datetime.date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 class TaskCreate(BaseModel):
@@ -41,6 +52,14 @@ class TaskCreate(BaseModel):
 
 class TaskMove(BaseModel):
     lane: Literal["next", "doing", "waiting", "review"]
+    due_date: str | None = None
+
+    @field_validator("due_date")
+    @classmethod
+    def _validate_due_date(cls, value: str | None) -> str | None:
+        if value is not None and not _is_valid_due_date(value):
+            raise ValueError("due_date must be an ISO YYYY-MM-DD date")
+        return value
 
 
 class InboxCapture(BaseModel):
@@ -396,12 +415,15 @@ def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None)
         human_managed = workflow.get("human_managed") is True
         workflow_lane = str(workflow.get("lane", ""))
         project_id = str(workflow.get("project_id", ""))
+        due_date_raw = workflow.get("due_date")
     else:
         human_managed = False
         workflow_lane = ""
         project_id = ""
+        due_date_raw = None
     if workflow_lane not in LANE_IDS:
         workflow_lane = ""
+    due_date = due_date_raw if isinstance(due_date_raw, str) and _is_valid_due_date(due_date_raw) else None
     stored_category = task.tenant if task.tenant in CATEGORIES else ""
     project = (projects or {}).get(project_id)
     if not project_id:
@@ -434,6 +456,7 @@ def _task_view(task: kb.Task, projects: dict[str, dict[str, Any]] | None = None)
         "project": project,
         "reconciliation": reconciliation,
         "links": _links(body),
+        "due_date": due_date,
     }
 
 
@@ -471,7 +494,7 @@ def _park_for_human(conn: Any, task_id: str, *, reason: str) -> None:
         )
 
 
-def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
+def _move_human_lane(conn: Any, task_id: str, lane: str, *, due_date: str | None = None, clear_due_date: bool = False) -> kb.Task:
     now = int(time.time())
     with kb.write_txn(conn):
         current = conn.execute(
@@ -502,6 +525,10 @@ def _move_human_lane(conn: Any, task_id: str, lane: str) -> kb.Task:
                 (task_id,),
             )
         workflow["lane"] = lane
+        if clear_due_date:
+            workflow.pop("due_date", None)
+        elif due_date is not None:
+            workflow["due_date"] = due_date
         metadata["project_kanban"] = workflow
         updated = conn.execute(
             "UPDATE tasks SET body = ? WHERE id = ? "
@@ -643,9 +670,17 @@ def move_task(task_id: str, payload: TaskMove, board: str = LOCAL_BOARD) -> dict
     project_lookup = {
         item["project_id"]: item for item in _project_records()["items"]
     }
+    due_date_provided = "due_date" in payload.model_fields_set
     conn = kb.connect(board=board)
     try:
-        return _task_view(_move_human_lane(conn, task_id, payload.lane), project_lookup)
+        task = _move_human_lane(
+            conn,
+            task_id,
+            payload.lane,
+            due_date=payload.due_date if due_date_provided and payload.due_date is not None else None,
+            clear_due_date=due_date_provided and payload.due_date is None,
+        )
+        return _task_view(task, project_lookup)
     finally:
         conn.close()
 

@@ -48,6 +48,15 @@ function countCategories(items, ids) {
   return Object.fromEntries(ids.map(id => [id, items.filter(item => item.category === id).length]))
 }
 
+// Office Inbox's active-candidate count: captured + suggested, the same two
+// stages Inbox already renders as "reviewable" work. Accepted/dismissed
+// cards are session-only history, not part of the live count.
+function inboxActiveCount(inbox) {
+  if (!inbox?.available) return 0
+  const stages = inbox.stages || {}
+  return (stages.captured?.length || 0) + (stages.suggested?.length || 0)
+}
+
 function reconciliationLabel(task) {
   if (task.reconciliation === 'linked') return 'Linked to active canonical project'
   if (task.reconciliation === 'category-mismatch') return 'Legacy / unlinked · stored category disagrees with project'
@@ -86,6 +95,16 @@ function IconButton({ icon, label, onClick, disabled = false }) {
   })
 }
 
+// A small numeric badge parked on a tab's corner. Zero is hidden entirely
+// rather than rendered as "0" — a quieter empty state than a visible zero.
+function TabBadge({ count }) {
+  if (!count) return null
+  return jsx('span', {
+    className: 'absolute -right-1 -top-1 grid min-w-[15px] place-items-center rounded-full bg-(--ui-bg-quaternary) px-1 text-[9px] font-bold text-(--ui-text-tertiary)',
+    children: count
+  })
+}
+
 function useKanbanMutation(ctx) {
   const queryClient = useQueryClient()
   return useMutation({
@@ -95,7 +114,57 @@ function useKanbanMutation(ctx) {
   })
 }
 
-function TaskCard({ task, lane, mutate, onOpen, active }) {
+function taskTypeOf(task) {
+  return task.reconciliation === 'linked' && !!task.project?.github?.repo ? 'tracked' : 'quick'
+}
+
+function TaskTypePill({ task, compact = false }) {
+  const type = taskTypeOf(task)
+  const token = type === 'tracked' ? '--ui-purple' : '--ui-text-tertiary'
+  return jsx('span', {
+    className: `shrink-0 rounded font-bold uppercase tracking-wide ${compact ? 'px-1 py-px text-[8px]' : 'px-1.5 py-0.5 text-[9px]'}`,
+    style: { background: tint(token, 16), color: ink(token) },
+    children: type === 'tracked' ? 'Tracked' : 'Quick'
+  })
+}
+
+// Approaching-deadline threshold, confirmed by Jinliang: ≤7 days out is
+// "soon"; a fixed constant, not a per-card or global setting.
+const DEADLINE_SOON_DAYS = 7
+
+function deadlineState(dueDate) {
+  if (!dueDate) return null
+  const due = new Date(`${dueDate}T00:00:00`)
+  if (Number.isNaN(due.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((due.getTime() - today.getTime()) / 86400000)
+  if (days < 0) return { tone: 'overdue', days }
+  if (days <= DEADLINE_SOON_DAYS) return { tone: 'soon', days }
+  return { tone: 'plenty', days }
+}
+
+function deadlineLabel(state) {
+  if (state.tone === 'overdue') return `Overdue ${Math.abs(state.days)} day${Math.abs(state.days) === 1 ? '' : 's'}`
+  if (state.days === 0) return 'Due today'
+  return `Due in ${state.days} day${state.days === 1 ? '' : 's'}`
+}
+
+// Renders nothing (no row, no layout shift) when the card has no due_date —
+// the common case today, since due_date entry UI is out of scope for this
+// bundle.
+function DeadlineRow({ dueDate, compact = false }) {
+  const state = deadlineState(dueDate)
+  if (!state) return null
+  const token = state.tone === 'overdue' ? '--ui-red' : state.tone === 'soon' ? '--ui-orange' : '--ui-text-tertiary'
+  return jsx('div', {
+    className: `flex items-center font-medium ${compact ? 'mt-1.5 gap-1 rounded px-1 py-0.5 text-[9px]' : 'mt-2 gap-1.5 rounded px-1.5 py-1 text-[10px]'}`,
+    style: { background: tint(token, state.tone === 'plenty' ? 8 : 16), color: ink(token) },
+    children: deadlineLabel(state)
+  })
+}
+
+function TaskCard({ task, lane, mutate, onOpen, active, compact = false }) {
   const index = lanes.findIndex(item => item.id === lane)
   const move = destination => mutate.mutate({ path: `/tasks/${task.id}`, method: 'PATCH', body: { lane: destination } })
   const priority = priorityOf(task)
@@ -103,15 +172,21 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
   const project = task.project
   return jsxs('article', {
     'data-kanban-card': task.category,
-    className: `rounded-lg border bg-(--ui-chat-surface-background) p-3 ${active ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary)'}`,
+    className: `rounded-lg border bg-(--ui-chat-surface-background) ${compact ? 'p-2' : 'p-3'} ${active ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary)'}`,
     children: [
       jsxs('div', {
         className: 'flex items-start justify-between gap-2',
         children: [
-          jsx('span', {
-            className: 'truncate rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
-            style: { background: tint(category.token, 16), color: ink(category.token) },
-            children: task.reconciliation === 'linked' ? project?.title : category.label
+          jsxs('span', {
+            className: 'flex min-w-0 items-center gap-1.5',
+            children: [
+              jsx('span', {
+                className: `truncate rounded font-bold uppercase tracking-wide ${compact ? 'px-1 py-px text-[8px]' : 'px-1.5 py-0.5 text-[9px]'}`,
+                style: { background: tint(category.token, 16), color: ink(category.token) },
+                children: task.reconciliation === 'linked' ? project?.title : category.label
+              }),
+              jsx(TaskTypePill, { task, compact })
+            ]
           }),
           priority ? jsx('span', {
             className: 'shrink-0 text-[9px] font-bold uppercase tracking-wide',
@@ -123,10 +198,13 @@ function TaskCard({ task, lane, mutate, onOpen, active }) {
       jsx('button', {
         type: 'button',
         onClick: () => onOpen(task),
-        className: 'mt-1.5 block w-full text-left text-sm font-medium leading-snug hover:underline',
+        className: `mt-1.5 block w-full text-left font-medium leading-snug hover:underline ${compact ? 'text-xs' : 'text-sm'}`,
         children: task.title
       }),
-      task.body ? jsx('p', { className: 'mt-1 line-clamp-2 text-xs leading-relaxed text-(--ui-text-secondary)', children: task.body }) : null,
+      compact
+        ? jsx('div', { className: 'mt-1 text-[9.5px] text-(--ui-text-tertiary)', children: `Active ${relativeTime(task.created_at * 1000)}` })
+        : (task.body ? jsx('p', { className: 'mt-1 line-clamp-2 text-xs leading-relaxed text-(--ui-text-secondary)', children: task.body }) : null),
+      jsx(DeadlineRow, { dueDate: task.due_date, compact }),
       jsxs('div', {
         className: 'mt-2 flex items-center justify-between gap-2',
         children: [
@@ -214,7 +292,7 @@ function TaskDetail({ task, lane, onClose, docked }) {
   })
 }
 
-function Lane({ lane, tasks, mutate, onOpen, activeId }) {
+function Lane({ lane, tasks, mutate, onOpen, activeId, compact = false }) {
   return jsxs('section', {
     'data-kanban-lane': lane.id,
     className: 'min-w-0 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-quinary) p-2.5',
@@ -233,7 +311,7 @@ function Lane({ lane, tasks, mutate, onOpen, activeId }) {
         ]
       }),
       tasks.length
-        ? jsx('div', { className: 'flex flex-col gap-2', children: tasks.map(task => jsx(TaskCard, { task, lane: lane.id, mutate, onOpen, active: task.id === activeId }, task.id)) })
+        ? jsx('div', { className: 'flex flex-col gap-2', children: tasks.map(task => jsx(TaskCard, { task, lane: lane.id, mutate, onOpen, active: task.id === activeId, compact }, task.id)) })
         : jsx('div', { className: 'rounded-md border border-dashed border-(--ui-stroke-secondary) px-3 py-8 text-center text-xs text-(--ui-text-tertiary)', children: 'No actions here' })
     ]
   })
@@ -685,9 +763,9 @@ function Dashboard({ ctx }) {
           jsxs('div', { className: 'flex flex-wrap items-center justify-between gap-2', children: [
             jsxs('div', { className: 'min-w-0', children: [jsxs('h1', { className: 'flex items-center gap-2 truncate text-lg font-medium', children: [jsx(Codicon, { name: 'project' }), 'Project Kanban'] }), jsx('div', { className: 'mt-0.5 text-xs text-(--ui-text-tertiary)', children: `${data.projects.total_active} canonical projects · Obsidian truth · native local actions` })] }),
             jsxs('div', { className: 'flex items-center gap-1', children: [
-              jsx(Button, { variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => { setView('board'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show action board', children: 'Board' }),
-              jsx(Button, { variant: view === 'projects' ? 'secondary' : 'ghost', onClick: () => { setView('projects'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show canonical projects', children: 'Projects' }),
-              jsx(Button, { variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => { setView('inbox'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show Office Inbox', children: 'Office Inbox' }),
+              jsxs(Button, { className: 'relative', variant: view === 'board' ? 'secondary' : 'ghost', onClick: () => { setView('board'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show action board', children: ['Board', jsx(TabBadge, { count: boardTasks.length })] }),
+              jsxs(Button, { className: 'relative', variant: view === 'projects' ? 'secondary' : 'ghost', onClick: () => { setView('projects'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show canonical projects', children: ['Projects', jsx(TabBadge, { count: data.projects.total_active })] }),
+              jsxs(Button, { className: 'relative', variant: view === 'inbox' ? 'secondary' : 'ghost', onClick: () => { setView('inbox'); setCategory('all'); setDetail(null) }, 'aria-label': 'Show Office Inbox', children: ['Office Inbox', jsx(TabBadge, { count: inboxActiveCount(data.inbox) })] }),
               view === 'board' ? jsx(IconButton, { icon: 'add', label: 'Add next action', onClick: () => setAdding(value => !value) }) : null
             ] })
           ] }),
@@ -708,7 +786,7 @@ function Dashboard({ ctx }) {
               view === 'board' ? jsx('div', {
                 className: adding ? 'mt-3 grid min-w-0 gap-3' : 'grid min-w-0 gap-3',
                 style: { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` },
-                children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate, activeId: detail?.task.id, onOpen: task => setDetail({ task, lane: item.id }) }, item.id))
+                children: lanes.filter(item => columns > 1 || item.id === selectedLane).map(item => jsx(Lane, { lane: item, tasks: filtered[item.id], mutate, activeId: detail?.task.id, onOpen: task => setDetail({ task, lane: item.id }), compact: columns === 1 }, item.id))
               }) : view === 'projects'
                 ? jsx(Projects, { data: projectData, ctx })
                 : jsx(Inbox, { data: data.inbox, mutate, projects: data.projects.items || [] })

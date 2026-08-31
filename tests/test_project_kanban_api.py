@@ -1371,6 +1371,176 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(metadata.get("details"), "More context")
         self.assertEqual(task.title, "Real candidate, revised")
 
+    def test_move_task_sets_due_date_and_snapshot_reflects_it(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Draft grant renewal", "project_id": "research", "lane": "next"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        task = created.json()
+        self.assertIsNone(task["due_date"])
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "doing", "due_date": "2026-09-15"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["due_date"], "2026-09-15")
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        snapshot_task = next(
+            item for item in snapshot["lanes"]["doing"] if item["id"] == task["id"]
+        )
+        self.assertEqual(snapshot_task["due_date"], "2026-09-15")
+
+    def test_move_task_due_date_null_clears_previously_set_value(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Draft grant renewal", "project_id": "research", "lane": "next"},
+        )
+        task = created.json()
+        first = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "doing", "due_date": "2026-09-15"},
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["due_date"], "2026-09-15")
+
+        cleared = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "review", "due_date": None},
+        )
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        self.assertIsNone(cleared.json()["due_date"])
+
+        conn = kb.connect(board="todos")
+        try:
+            stored = kb.get_task(conn, task["id"])
+        finally:
+            conn.close()
+        metadata = self.module._metadata(stored.body)
+        self.assertNotIn("due_date", metadata["project_kanban"])
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        snapshot_task = next(
+            item for item in snapshot["lanes"]["review"] if item["id"] == task["id"]
+        )
+        self.assertIsNone(snapshot_task["due_date"])
+
+    def test_move_task_without_due_date_key_leaves_existing_value_untouched(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Draft grant renewal", "project_id": "research", "lane": "next"},
+        )
+        task = created.json()
+        self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "doing", "due_date": "2026-09-15"},
+        )
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task['id']}",
+            json={"lane": "review"},
+        )
+        self.assertEqual(moved.status_code, 200, moved.text)
+        self.assertEqual(moved.json()["due_date"], "2026-09-15")
+
+    def test_move_task_rejects_malformed_due_date_with_422(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Draft grant renewal", "project_id": "research", "lane": "next"},
+        )
+        task = created.json()
+
+        for bad_value in ("15-09-2026", "2026/09/15", "not-a-date", "2026-13-40", ""):
+            response = self.client.patch(
+                f"/api/plugins/project-kanban/tasks/{task['id']}",
+                json={"lane": "doing", "due_date": bad_value},
+            )
+            self.assertEqual(response.status_code, 422, f"{bad_value!r}: {response.text}")
+
+        conn = kb.connect(board="todos")
+        try:
+            stored = kb.get_task(conn, task["id"])
+        finally:
+            conn.close()
+        metadata = self.module._metadata(stored.body)
+        self.assertNotIn("due_date", metadata["project_kanban"])
+        self.assertEqual(metadata["project_kanban"]["lane"], "next")
+
+    def test_move_task_with_due_date_still_409s_for_native_worker_lifecycle_task(self):
+        conn = kb.connect(board="todos")
+        try:
+            task_id = kb.create_task(conn, title="Worker task", board="todos")
+            claimed = kb.claim_task(conn, task_id, claimer="test-worker")
+            self.assertIsNotNone(claimed)
+        finally:
+            conn.close()
+
+        moved = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task_id}",
+            json={"lane": "waiting", "due_date": "2026-09-15"},
+        )
+        self.assertEqual(moved.status_code, 409, moved.text)
+
+        moved_without_due_date = self.client.patch(
+            f"/api/plugins/project-kanban/tasks/{task_id}",
+            json={"lane": "waiting"},
+        )
+        self.assertEqual(moved_without_due_date.status_code, 409, moved_without_due_date.text)
+
+        conn = kb.connect(board="todos")
+        try:
+            unchanged = kb.get_task(conn, task_id)
+            self.assertEqual(unchanged.status, "running")
+            self.assertIsNotNone(unchanged.claim_lock)
+        finally:
+            conn.close()
+
+    def test_task_view_due_date_is_none_when_absent(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "No deadline yet", "project_id": "research", "lane": "next"},
+        )
+        self.assertEqual(created.status_code, 201, created.text)
+        self.assertIsNone(created.json()["due_date"])
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot").json()
+        snapshot_task = next(
+            item for item in snapshot["lanes"]["next"] if item["id"] == created.json()["id"]
+        )
+        self.assertIn("due_date", snapshot_task)
+        self.assertIsNone(snapshot_task["due_date"])
+
+    def test_task_view_treats_malformed_stored_due_date_as_absent(self):
+        created = self.client.post(
+            "/api/plugins/project-kanban/tasks",
+            json={"title": "Corrupted deadline", "project_id": "research", "lane": "next"},
+        )
+        task_id = created.json()["id"]
+
+        conn = kb.connect(board="todos")
+        try:
+            current = conn.execute(
+                "SELECT body FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+            metadata = self.module._metadata(current["body"])
+            metadata["project_kanban"]["due_date"] = "not-a-real-date"
+            with kb.write_txn(conn):
+                conn.execute(
+                    "UPDATE tasks SET body = ? WHERE id = ?",
+                    (json.dumps(metadata), task_id),
+                )
+        finally:
+            conn.close()
+
+        snapshot = self.client.get("/api/plugins/project-kanban/snapshot")
+        self.assertEqual(snapshot.status_code, 200, snapshot.text)
+        snapshot_task = next(
+            item for item in snapshot.json()["lanes"]["next"] if item["id"] == task_id
+        )
+        self.assertIsNone(snapshot_task["due_date"])
+
 
 if __name__ == "__main__":
     unittest.main()

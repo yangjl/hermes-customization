@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Kanban — card-face bundle (disposable MVP)</title>
+<style>
+  :root{
+    color-scheme:light;
+    --bg:#f6f6f6;--surface:#fff;--sidebar:#f1f1f1;--panel:#fafafa;--text:#262626;
+    --muted:#666;--quiet:#858585;--border:#d7d7d7;--strong:#c3c3c3;--accent:#0875c1;
+    --accent-soft:#e6f3fc;--blue:#1677c8;--blue-soft:#e8f3fc;--green:#16825d;
+    --green-soft:#e7f5ef;--orange:#a65f00;--orange-soft:#fff1dc;--purple:#7456a8;
+    --purple-soft:#f0eafb;--red:#b83a3a;--red-soft:#fbe9e9;--shadow:0 14px 34px rgba(0,0,0,.13)
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+  button,input,select{font:inherit}
+  .fixture{position:fixed;z-index:30;top:14px;right:14px;border:1px solid #9ec7e3;border-radius:999px;background:var(--accent-soft);padding:4px 10px;color:#075e99;font-size:9px;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+  .page{max-width:1180px;margin:0 auto;padding:20px 18px 70px}
+  .page-head{margin-bottom:6px}
+  .page-head h1{margin:0;font-size:19px;letter-spacing:-.015em}
+  .page-head p{margin:4px 0 0;color:var(--muted);font-size:11.5px;max-width:680px}
+
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 22px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}
+  .legend-item{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:10.5px}
+  .legend-num{display:inline-block;color:var(--quiet);font-weight:750}
+
+  /* ---- section 1: top tab strip with numeric badges (two widths shown) ---- */
+  .demo-block{margin-bottom:34px}
+  .demo-label{display:flex;align-items:center;gap:8px;margin-bottom:10px;color:var(--quiet);font-size:10px;font-weight:750;letter-spacing:.07em;text-transform:uppercase}
+  .demo-label .tag{border-radius:999px;background:#e2e2e2;padding:1px 7px;color:var(--quiet);font-weight:700;letter-spacing:0;text-transform:none}
+
+  .tabstrip-frame{display:inline-block;border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:10px;box-shadow:0 1px 1px rgba(0,0,0,.03)}
+  .tabstrip{display:flex;gap:4px}
+  .tabstrip.wide{width:520px}
+  .tabstrip.narrow{width:220px}
+  .tab{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;border:1px solid transparent;border-radius:6px;padding:8px 4px;background:transparent;color:var(--muted);cursor:pointer;text-align:center}
+  .tab .icon{font-size:14px}
+  .tab .label{font-size:9.5px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .tab.active{border-color:#9dc7e3;background:var(--accent-soft);color:#075e99}
+  .tab-badge{position:absolute;top:2px;right:6px;display:grid;min-width:15px;height:15px;place-items:center;border-radius:999px;background:var(--red);padding:0 4px;color:#fff;font-size:9px;font-weight:750;line-height:1;box-shadow:0 0 0 1.5px var(--surface)}
+  .tab-badge.zero{display:none}
+
+  /* ---- section 2: board cards, current width vs compact/narrow ---- */
+  .split{display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap}
+  .col{flex:none}
+  .col-head{margin-bottom:8px;font-size:11px;font-weight:670;color:var(--text)}
+  .col-sub{margin:2px 0 10px;color:var(--quiet);font-size:10px}
+
+  .lane-frame{border:1px solid var(--border);border-radius:8px;background:#f1f1f1;padding:9px}
+  .lane-frame.regular{width:260px}
+  .lane-frame.narrow{width:186px}
+  .lane-head{display:flex;align-items:center;justify-content:space-between;padding:0 2px 8px}
+  .lane-title{display:flex;align-items:center;gap:7px;font-weight:670;font-size:11.5px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--blue)}
+  .lane-count{border-radius:999px;background:#e2e2e2;padding:1px 6px;color:var(--quiet);font-size:10px}
+  .cards{display:grid;gap:8px}
+
+  /* regular card (existing baseline, for comparison only) */
+  .card{border:1px solid var(--border);border-radius:8px;background:var(--surface);padding:10px;box-shadow:0 1px 1px rgba(0,0,0,.03)}
+  .card-top{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+  .project-pill{max-width:70%;overflow:hidden;border-radius:4px;background:var(--blue-soft);padding:2px 6px;color:#17649b;font-size:9px;font-weight:740;text-overflow:ellipsis;white-space:nowrap;text-transform:uppercase}
+  .type-pill{flex:none;display:flex;align-items:center;gap:3px;border-radius:4px;padding:2px 6px;font-size:9px;font-weight:740;text-transform:uppercase}
+  .type-pill.tracked{background:var(--purple-soft);color:#654592}
+  .type-pill.quick{background:#eee;color:#666}
+  .card-title{display:block;width:100%;margin:7px 0 0;border:0;background:transparent;padding:0;text-align:left;font-weight:670;line-height:1.35;cursor:pointer;color:var(--text)}
+  .card-title:hover{text-decoration:underline}
+  .card-body{display:-webkit-box;margin-top:4px;overflow:hidden;color:var(--muted);font-size:11px;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+  .deadline-row{display:flex;align-items:center;gap:5px;margin-top:7px;border-radius:5px;padding:4px 7px;font-size:10px;font-weight:660}
+  .deadline-row.plenty{background:var(--panel);color:var(--muted)}
+  .deadline-row.soon{background:var(--orange-soft);color:var(--orange)}
+  .deadline-row.overdue{background:var(--red-soft);color:var(--red)}
+  .deadline-dot{width:6px;height:6px;border-radius:50%;flex:none}
+  .deadline-row.plenty .deadline-dot{background:var(--quiet)}
+  .deadline-row.soon .deadline-dot{background:var(--orange)}
+  .deadline-row.overdue .deadline-dot{background:var(--red)}
+  .card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+  .badges,.moves{display:flex;gap:4px}
+  .badge{display:grid;width:21px;height:21px;place-items:center;border:1px solid var(--border);border-radius:5px;background:var(--panel);color:var(--muted);font-size:10px}
+  .move{display:grid;width:23px;height:23px;place-items:center;border:0;border-radius:5px;background:transparent;color:var(--muted);cursor:pointer}
+  .move:hover{background:#ececec;color:var(--text)}
+
+  /* compact card (narrow side-view target) */
+  .card.compact{padding:7px 8px}
+  .card.compact .card-top{gap:4px}
+  .card.compact .project-pill,.card.compact .type-pill{font-size:8px;padding:1px 5px}
+  .card.compact .card-title{margin-top:4px;font-size:11.5px;line-height:1.3}
+  .card.compact .card-body{display:none}
+  .card.compact .last-active{margin-top:3px;color:var(--quiet);font-size:9.5px}
+  .card.compact .deadline-row{margin-top:5px;padding:3px 6px;font-size:9px}
+  .card.compact .card-foot{margin-top:6px}
+  .card.compact .badge{width:18px;height:18px;font-size:9px}
+  .card.compact .move{width:19px;height:19px;font-size:11px}
+
+  .note{margin-top:30px;border-left:3px solid var(--accent);background:var(--accent-soft);padding:9px 11px;color:#365f7b;font-size:10.5px;border-radius:0 6px 6px 0;max-width:900px}
+  .note+.note{margin-top:10px}
+</style>
+</head>
+<body>
+<span class="fixture">Synthetic fixture — disposable sketch</span>
+<div class="page">
+  <div class="page-head">
+    <h1>Project Kanban — card-face bundle</h1>
+    <p>Combined visual MVP for four recorded enhancement requests: numeric tab badges, a compact Board card for the narrow side-view, a card-type label (quick action vs. tracked project), and deadline visibility with an approaching-deadline warning. All data below is synthetic and labelled.</p>
+  </div>
+
+  <div class="legend">
+    <span class="legend-item"><span class="type-pill tracked">◫ Tracked</span> Git-tracked project card</span>
+    <span class="legend-item"><span class="type-pill quick">✓ Quick</span> one-off action, no repo</span>
+    <span class="legend-item"><span class="deadline-row plenty" style="display:inline-flex;padding:2px 6px"><span class="deadline-dot"></span> Sept 30</span> deadline, not yet close</span>
+    <span class="legend-item"><span class="deadline-row soon" style="display:inline-flex;padding:2px 6px"><span class="deadline-dot"></span> in 4 days</span> approaching (≤7 days)</span>
+    <span class="legend-item"><span class="deadline-row overdue" style="display:inline-flex;padding:2px 6px"><span class="deadline-dot"></span> overdue 2d</span> past due</span>
+  </div>
+
+  <!-- ============ Numeric tab badges ============ -->
+  <div class="demo-block">
+    <div class="demo-label">1 · Numeric badges on top tabs <span class="tag">wide + narrow side-view</span></div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div class="tabstrip-frame">
+        <div class="tabstrip wide">
+          <button class="tab active"><span class="icon">▦</span><span class="label">Board</span><span class="tab-badge">14</span></button>
+          <button class="tab"><span class="icon">◫</span><span class="label">Projects</span><span class="tab-badge">22</span></button>
+          <button class="tab"><span class="icon">⌂</span><span class="label">Office Inbox</span><span class="tab-badge">4</span></button>
+        </div>
+      </div>
+      <div class="tabstrip-frame">
+        <div class="tabstrip narrow">
+          <button class="tab active"><span class="icon">▦</span><span class="label">Board</span><span class="tab-badge">14</span></button>
+          <button class="tab"><span class="icon">◫</span><span class="label">Projects</span><span class="tab-badge">22</span></button>
+          <button class="tab"><span class="icon">⌂</span><span class="label">Inbox</span><span class="tab-badge zero">0</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="note">Badge shows the current live count from the same data each surface already renders (open Board actions, canonical Projects, active Inbox captures). Zero-count behavior: the badge is hidden entirely rather than showing "0" (see the narrow Office Inbox tab above) — quieter than a visible zero, and avoids implying the tab is empty of content when a fresh capture could land any moment.</div>
+  </div>
+
+  <!-- ============ Compact card + card-type + deadline, side by side ============ -->
+  <div class="demo-block">
+    <div class="demo-label">2, 3, 4 · Compact card, card-type label, and deadline visibility <span class="tag">same lane, two widths</span></div>
+    <div class="split">
+      <div class="col">
+        <div class="col-head">Regular width — current card size</div>
+        <div class="col-sub">Baseline for comparison. Bottom row (icons + lane arrows) unchanged.</div>
+        <div class="lane-frame regular">
+          <div class="lane-head"><span class="lane-title"><span class="dot"></span>Next</span><span class="lane-count">3</span></div>
+          <div class="cards">
+            <div class="card">
+              <div class="card-top">
+                <span class="project-pill">jyanglab.com</span>
+                <span class="type-pill tracked">◫ Tracked</span>
+              </div>
+              <button class="card-title">Build AI-chat feature for jyanglab.com</button>
+              <div class="card-body">Scope/design not yet defined — needs a plan before implementation starts.</div>
+              <div class="deadline-row plenty"><span class="deadline-dot"></span>No deadline set</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span><span class="badge" title="Obsidian project">◫</span><span class="badge" title="GitHub evidence">⌁</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-top">
+                <span class="project-pill">Nutech grant</span>
+                <span class="type-pill quick">✓ Quick</span>
+              </div>
+              <button class="card-title">Grant from Nutech — due Sept 15, 2026</button>
+              <div class="card-body">Up to $20,000 proof-of-concept funding. Requires prior formal disclosure to NUtech Ventures.</div>
+              <div class="deadline-row soon"><span class="deadline-dot"></span>Due in 4 days</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-top">
+                <span class="project-pill">labkb</span>
+                <span class="type-pill quick">✓ Quick</span>
+              </div>
+              <button class="card-title">Review labkb and set the next action</button>
+              <div class="card-body">New lab wiki scaffolded — not yet a Git repo, currently unreviewed.</div>
+              <div class="deadline-row overdue"><span class="deadline-dot"></span>Overdue 2 days</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span><span class="badge" title="Obsidian project">◫</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="col-head">Compact — narrow side-view target</div>
+        <div class="col-sub">Title + last-active date only; body text dropped. Bottom row (icons + lane arrows) fully preserved.</div>
+        <div class="lane-frame narrow">
+          <div class="lane-head"><span class="lane-title"><span class="dot"></span>Next</span><span class="lane-count">3</span></div>
+          <div class="cards">
+            <div class="card compact">
+              <div class="card-top">
+                <span class="project-pill">jyanglab.com</span>
+                <span class="type-pill tracked">◫</span>
+              </div>
+              <button class="card-title">Build AI-chat feature for jyanglab.com</button>
+              <div class="last-active">Active Aug 27</div>
+              <div class="deadline-row plenty"><span class="deadline-dot"></span>No deadline</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span><span class="badge" title="Obsidian project">◫</span><span class="badge" title="GitHub evidence">⌁</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+            <div class="card compact">
+              <div class="card-top">
+                <span class="project-pill">Nutech grant</span>
+                <span class="type-pill quick">✓</span>
+              </div>
+              <button class="card-title">Grant from Nutech — due Sept 15</button>
+              <div class="last-active">Active Aug 31</div>
+              <div class="deadline-row soon"><span class="deadline-dot"></span>Due in 4 days</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+            <div class="card compact">
+              <div class="card-top">
+                <span class="project-pill">labkb</span>
+                <span class="type-pill quick">✓</span>
+              </div>
+              <button class="card-title">Review labkb and set the next action</button>
+              <div class="last-active">Active Aug 27</div>
+              <div class="deadline-row overdue"><span class="deadline-dot"></span>Overdue 2 days</div>
+              <div class="card-foot">
+                <span class="badges"><span class="badge" title="Kanban action">▦</span><span class="badge" title="Obsidian project">◫</span></span>
+                <span class="moves"><button class="move">›</button></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Deadline data source (open question, per the Issue Log):</strong> today's Kanban schema has no due-date field. This sketch's deadline row assumes a new optional field is added to the human-managed card's JSON metadata (e.g. <code>project_kanban.due_date</code>) — populated manually when a card is created/edited, the same way <code>lane</code> and <code>project_id</code> already work. "Approaching" threshold shown here is ≤7 days; needs your confirmation before it's built.
+  </div>
+  <div class="note">
+    <strong>Card-type label logic:</strong> "Tracked" = card is linked to a canonical project with a GitHub/local Git evidence source; "Quick" = human-managed card with no linked repository evidence. Both pills reuse the existing project-linkage data already computed for the detail panel — no new backend field needed for this one.
+  </div>
+  <div class="note">
+    This sketch is disposable and standalone: local CSS/JS only, no imports from <code>plugin.js</code> or <code>plugin_api.py</code>, no network, no build step. It demonstrates direction only — approval here authorizes a follow-up plan and vertical-slice build per <code>hermes-customizations/AGENTS.md</code> §3, not schema/backend changes on its own.
+  </div>
+</div>
+</body>
+</html>
