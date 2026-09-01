@@ -136,7 +136,15 @@ stashed copy is easy to miss.
 `scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies every
 patch in `patches/` with a three-way merge, rebuilds the app, and reinstalls it.
 It exits silently when they are already present, and it refuses to touch a
-source tree with uncommitted changes rather than tangling work in progress.
+source tree whose **patched files** have uncommitted changes rather than
+tangling work in progress.
+
+That guard is scoped to the paths the patches touch, not the whole tree.
+Upstream ships two contributor files whose names differ only in case
+(`agent@agents-Mac-mini.local` and `agent@Agents-Mac-mini.local`); macOS is
+case-insensitive, so only one can exist on disk and git reports the other as
+permanently modified — restoring either dirties its twin. A whole-tree guard
+would refuse forever over a file no patch of ours goes near.
 
 The script needs the gateway running to fire on schedule — `hermes cron status`
 reports `Gateway is not running` when it cannot, and the job silently never

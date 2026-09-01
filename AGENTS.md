@@ -160,11 +160,18 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 
 ## 7. Patch status vs native Hermes
 
-Last verified 2026-08-30 against Hermes `4f2254350`. Re-verify after any
+Last verified 2026-08-31 against Hermes `8dbf07e95`. Re-verify after any
 Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
 means the tree is unpatched and the patch is still needed; `git apply --check
 --reverse` succeeding means it is applied. When a feature lands natively,
 delete its section from the patch and update this table.
+
+Both checks describe the **working tree**, so they only answer the native
+question while the tree is unpatched — right after an update, before the
+reconciler runs. Once the patch is reapplied, `--check` fails because our own
+change is present, not because upstream shipped anything. Read pristine upstream
+from committed blobs instead (`git show origin/main:<path>`, `git ls-tree`), and
+check `origin/main` as well as `HEAD` so a pending update is not a surprise.
 
 `patches/terminal-theme-fields.patch` — **still needed.**
 `_normalise_theme_definition` in `hermes_cli/web_server.py` still strips
