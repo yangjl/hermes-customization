@@ -14,7 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 class InstallTest(unittest.TestCase):
     @staticmethod
     def _fake_hermes(
-        root: Path, *, board_create_exit: int = 0, existing_boards: tuple[str, ...] = ()
+        root: Path,
+        *,
+        board_create_exit: int = 0,
+        existing_boards: tuple[str, ...] = (),
+        enabled_plugins: tuple[str, ...] = (),
     ) -> tuple[Path, Path]:
         """A stand-in `hermes` that mirrors CURRENT Kanban CLI semantics.
 
@@ -32,6 +36,10 @@ class InstallTest(unittest.TestCase):
             f"if [ \"$1 $2 $3\" = \"kanban boards create\" ]; then exit {board_create_exit}; fi\n"
             "if [ \"$1 $2 $3\" = \"kanban boards list\" ]; then\n"
             f"  printf '%s\\n' '{json.dumps([{'slug': slug} for slug in existing_boards])}'\n"
+            "  exit 0\n"
+            "fi\n"
+            "if [ \"$1 $2 $3\" = \"plugins list --enabled\" ]; then\n"
+            f"  printf '%s\\n' '{json.dumps([{'name': name} for name in enabled_plugins])}'\n"
             "  exit 0\n"
             "fi\n"
             "exit 0\n",
@@ -178,6 +186,39 @@ class InstallTest(unittest.TestCase):
             calls = log.read_text(encoding="utf-8")
             self.assertNotIn("plugins enable project-kanban", calls)
             self.assertNotIn("kanban boards create", calls)
+
+    def test_no_flag_run_reports_the_plugin_it_actually_found_enabled(self):
+        """The opt-in hint must describe real state, not just the missing flag.
+
+        A reinstall without `--enable-project-kanban` used to print "installed
+        but disabled" even when the plugin had been enabled by an earlier run,
+        which reads as a failed install.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / ".hermes"
+            bin_dir, log = self._fake_hermes(
+                root, enabled_plugins=("project-kanban",)
+            )
+            result = self._run_install(home, bin_dir, log)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Project Kanban already enabled", result.stdout)
+            self.assertNotIn("installed but disabled", result.stdout)
+            # Reporting state must not silently turn the plugin on.
+            self.assertNotIn(
+                "plugins enable project-kanban", log.read_text(encoding="utf-8")
+            )
+
+    def test_no_flag_run_still_reports_a_genuinely_disabled_plugin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / ".hermes"
+            bin_dir, log = self._fake_hermes(root)
+            result = self._run_install(home, bin_dir, log)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("installed but disabled", result.stdout)
 
     def test_explicit_opt_in_enables_plugin_without_renaming_existing_boards(self):
         with tempfile.TemporaryDirectory() as directory:

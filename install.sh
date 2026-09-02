@@ -21,6 +21,24 @@ usage() {
   echo "Themes: hermes-focus (default), light-lab"
 }
 
+plugin_enabled() {
+  # Same pipeline caveat as board_exists: capture first, so a non-zero `hermes`
+  # exit is not masked by python's status and misreported as "not enabled".
+  local listing
+  listing="$(hermes plugins list --enabled --json 2>/dev/null)" || return 2
+  printf '%s' "$listing" | python3 -c '
+import json, sys
+name = sys.argv[1]
+try:
+    rows = json.load(sys.stdin)
+except ValueError:
+    sys.exit(2)
+if not isinstance(rows, list):
+    sys.exit(2)
+sys.exit(0 if any(isinstance(r, dict) and r.get("name") == name for r in rows) else 1)
+' "$1"
+}
+
 board_exists() {
   # Capture the listing FIRST. As a pipeline this would run under `pipefail`,
   # where a non-zero `hermes` exit masks python's status — an existing board
@@ -211,6 +229,10 @@ if command -v hermes >/dev/null 2>&1; then
       exit 1
     fi
     echo "Activated Project Kanban for $board_name"
+  elif plugin_enabled project-kanban; then
+    # An earlier run already opted in. Saying "disabled" here reads as a failed
+    # install; only the board setup was skipped.
+    echo "Project Kanban already enabled; boards left untouched (pass --enable-project-kanban to reconcile them)."
   else
     echo "Project Kanban installed but disabled; rerun with --enable-project-kanban to opt in."
   fi
