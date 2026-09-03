@@ -160,7 +160,7 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 
 ## 7. Patch status vs native Hermes
 
-Last verified 2026-08-31 against Hermes `8dbf07e95`. Re-verify after any
+Last verified 2026-09-03 against Hermes `63279301bc`. Re-verify after any
 Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
 means the tree is unpatched and the patch is still needed; `git apply --check
 --reverse` succeeding means it is applied. When a feature lands natively,
