@@ -9,6 +9,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+# Upstream commit 5e01b8fa7a added hermes_state_holders.py without declaring it
+# in pyproject's py-modules, so the venv's editable finder can't see it. Put
+# the source checkout on sys.path until upstream fixes the manifest.
+sys.path.insert(0, os.path.expanduser(os.environ.get("HERMES_SOURCE_DIR", "~/.hermes/hermes-agent")))
+
 from hermes_cli import kanban_db as kb
 
 
