@@ -160,7 +160,7 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 
 ## 7. Patch status vs native Hermes
 
-Last verified 2026-08-31 against Hermes `8dbf07e95`. Re-verify after any
+Last verified 2026-09-04 against Hermes `f1ccf436a2`. Re-verify after any
 Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
 means the tree is unpatched and the patch is still needed; `git apply --check
 --reverse` succeeding means it is applied. When a feature lands natively,
@@ -174,8 +174,18 @@ from committed blobs instead (`git show origin/main:<path>`, `git ls-tree`), and
 check `origin/main` as well as `HEAD` so a pending update is not a surprise.
 
 `patches/terminal-theme-fields.patch` — **still needed.**
-`_normalise_theme_definition` in `hermes_cli/web_server.py` still strips
-`terminalBackground` / `terminalForeground` from dashboard theme data.
+`_normalise_theme_definition` still strips `terminalBackground` /
+`terminalForeground` from dashboard theme data.
+
+**It moved.** Upstream's Sep-2026 whole-codebase decomposition (`d3630f8532`)
+split the 18k-line `hermes_cli/web_server.py` into a facade plus
+`web_server_<topic>.py` siblings; `_normalise_theme_definition` now lives in
+`hermes_cli/web_server_dashboard.py`, and `tests/hermes_cli/test_web_server.py`
+imports it from there. Both patches were rebased onto the new home on
+2026-09-04. If a future update fails on `web_server.py` again, grep for the
+function before assuming the hunk is stale — the facade/sibling layout means
+these decompositions will keep happening (root `AGENTS.md`, "Facade + siblings
+layout").
 
 `patches/desktop-research-workflow.patch` — **still needed**, every remaining
 section:
@@ -191,7 +201,7 @@ section:
 | Folded live tool runs (ticker removal in `fallback.tsx` + tests) | Absent — `run-ticker.tsx` still wired in |
 | Narrower sash grab band (`tree-split.tsx`) | Absent — still 8px |
 | Reasoning collapsed by default (`reasoning-disclosure.ts`) | Absent — default still `false` |
-| Terminal theme fields in `web_server.py` (+ test) | Absent — duplicate of `terminal-theme-fields.patch` |
+| Terminal theme fields in `web_server_dashboard.py` (+ test) | Absent — duplicate of `terminal-theme-fields.patch` |
 
 Removed from the patch because native Hermes covers the need:
 
@@ -200,3 +210,4 @@ Removed from the patch because native Hermes covers the need:
 | Context-usage ring, always visible | Native meter + panel exist; text-based, hidden by default — enable per machine via status-bar right-click |
 | `desktop_*` skin color overrides (`skin.ts`) | Native cross-surface skin SDK loads Light Lab; the yaml's `desktop_*` keys are ignored, surfaces derive from base colors |
 | Three-line composer min-height (`styles.css`) | Dropped by choice; native one-line composer grows as you type |
+/var/folders/wf/cw083g0n0h34l1y437bdw0h5jslh10/T/hermes-snap-84dc8273719a.sh.tmp.76LMu0VTbq -> /var/folders/wf/cw083g0n0h34l1y437bdw0h5jslh10/T/hermes-snap-84dc8273719a.sh

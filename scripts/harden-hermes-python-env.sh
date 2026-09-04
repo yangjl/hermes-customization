@@ -17,6 +17,10 @@ set -euo pipefail
 hermes_root="${HERMES_HOME:-$HOME/.hermes}"
 wrapper="$HOME/.local/bin/hermes"
 venv_hermes="$hermes_root/hermes-agent/venv/bin/hermes"
+# A profile HERMES_HOME holds no checkout; the venv lives under the default home.
+if [[ ! -f "$venv_hermes" ]]; then
+  venv_hermes="$HOME/.hermes/hermes-agent/venv/bin/hermes"
+fi
 
 patch_wrapper() {
   [[ -f "$wrapper" ]] || return 0

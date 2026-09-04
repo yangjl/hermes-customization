@@ -1,5 +1,5 @@
 diff --git a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
-index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469e1483b91 100644
+index f0bdc16d0d..3acc826c73 100644
 --- a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
 +++ b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
 @@ -1,4 +1,9 @@
@@ -11,7 +11,7 @@ index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469
 +  RosterProfileMetadata
 +} from '@/global'
  import { sortConnectionsForDisplay } from '@/lib/connection-display'
-
+ 
  // Pure grouping for the fleet profile rail: which gateways sit "at rest"
 @@ -14,6 +19,9 @@ export interface FleetAgent {
    /** Pre-computed @name-device mention handle from the roster. */
@@ -21,12 +21,12 @@ index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469
 +   *  when the roster enumerated it — the at-rest square's identity source. */
 +  metadata?: RosterProfileMetadata
  }
-
+ 
  export interface FleetGroup {
 @@ -71,20 +79,21 @@ export function buildRestGroups({
        continue
      }
-
+ 
 -    const toAgent = (profile: string, handle?: string): FleetAgent => ({
 +    const toAgent = (profile: string, handle?: string, metadata?: RosterProfileMetadata): FleetAgent => ({
        connectionId: connection.id,
@@ -38,15 +38,15 @@ index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469
 +      isDefault: profile === DEFAULT_PROFILE,
 +      ...(metadata ? { metadata } : {})
      })
-
+ 
      const defaultRow = rows.find(row => row.profile === DEFAULT_PROFILE)
-
+ 
      const named = rows
        .filter(row => row.profile !== DEFAULT_PROFILE)
 -      .map(row => toAgent(row.profile, row.handle))
 +      .map(row => toAgent(row.profile, row.handle, row.profileMetadata))
        .sort((left, right) => collator.compare(left.profile, right.profile))
-
+ 
      groups.push({
 @@ -92,7 +101,7 @@ export function buildRestGroups({
        kind: connection.kind,
@@ -58,7 +58,7 @@ index f0bdc16d0d692956c90db735d622ef8f932d65e2..3acc826c73078db326966be5d2db6469
      })
    }
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d0d262b0d 100644
+index 41459bd2e1..31b359d2d3 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
 @@ -151,8 +151,10 @@ import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds }
@@ -72,7 +72,7 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
    liveSessionProjectId,
    orderProjectsByIds,
    overlayLiveLanes,
-@@ -324,6 +326,14 @@ export function ChatSidebar({
+@@ -325,6 +327,14 @@ export function ChatSidebar({
    const { t } = useI18n()
    const s = t.sidebar
    const { pathname } = useLocation()
@@ -87,7 +87,7 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
    // Contributed nav rows (plugins pairing a page with a sidebar entry) render
    // below the built-ins with the same chrome; active = at their route.
    const navContributions = useContributions(SIDEBAR_NAV_AREA)
-@@ -436,6 +446,7 @@ export function ChatSidebar({
+@@ -437,6 +447,7 @@ export function ChatSidebar({
    const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
    const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
    const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
@@ -95,10 +95,10 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
    const messagingOpenIds = useStore($sidebarMessagingOpenIds)
    // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
    const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
-@@ -1110,6 +1121,11 @@ export function ChatSidebar({
+@@ -1119,6 +1130,11 @@ export function ChatSidebar({
    // The project overview (drill-in list) vs. the entered project's content.
    const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
-
+ 
 +  const foldedProjectOverview = useMemo(
 +    () => foldProjectOverview(projectOverview ?? [], projectsExpanded),
 +    [projectOverview, projectsExpanded]
@@ -107,8 +107,8 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
    // Preview rows come from the backend tree (each project carries its
    // most-recent sessions), overlaid with live $sessions so a just-created
    // session shows under its project instantly (and with its working arc),
-@@ -1441,7 +1457,14 @@ export function ChatSidebar({
-
+@@ -1450,7 +1466,14 @@ export function ChatSidebar({
+ 
    // Persist the new project overview order (drag-to-reorder); orderByIds applies
    // it over the default sort, so stale/new ids reconcile on the next render.
 -  const reorderProjects = (ids: string[]) => setSidebarProjectOrderIds(ids)
@@ -120,10 +120,10 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
 +      ...projectModel.filter(project => !project.isNoProject && !reordered.has(project.id)).map(project => project.id)
 +    ])
 +  }
-
+ 
    // Sortable rows carry live session ids; the pinned store is keyed by durable
    // (lineage-root) ids, so translate before persisting the new order.
-@@ -1527,7 +1550,7 @@ export function ChatSidebar({
+@@ -1536,7 +1559,7 @@ export function ChatSidebar({
                      }
                      type="button"
                    >
@@ -132,7 +132,7 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
                      {/* Shrink-to-fit, not flex-1: the label carries the row's
                          `data-tour` handle, and anything anchored to it should
                          land at the end of the WORD, not out at the sidebar's
-@@ -1692,7 +1715,19 @@ export function ChatSidebar({
+@@ -1701,7 +1724,19 @@ export function ChatSidebar({
                    )
                  }
                  footer={
@@ -153,7 +153,7 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
                    // themselves. Profile groups don't: this one footer fetches the
                    // next page, which grows every profile at once.
                    !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
-@@ -1826,7 +1861,7 @@ export function ChatSidebar({
+@@ -1835,7 +1870,7 @@ export function ChatSidebar({
                    inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
                  }
                  projectContent={inProject ? enteredProjectContent : undefined}
@@ -163,7 +163,7 @@ index cc675ac4dbecdb1a95a3e41ea7b888f34adfbf7f..bd9b92b2efe989aa71c5dc4e87305a2d
                  projectRepoWorktrees={inProject ? scopedRepoWorktrees : undefined}
                  projectsLoading={worktreeGroupingActive ? projectTreeLoading : false}
 diff --git a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
-index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d020502b4d5 100644
+index a8d80ffa30..8bacea5ec4 100644
 --- a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
 @@ -1,8 +1,9 @@
@@ -171,12 +171,12 @@ index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d02
 +import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
  import { atom } from 'nanostores'
  import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
+ 
  import type { DesktopAgentRoster, DesktopConnectionsRegistry } from '@/global'
 +import { queryClient } from '@/lib/query-client'
-
+ 
  import { ProfileRail } from './profile-switcher'
-
+ 
 @@ -16,6 +17,13 @@ const navigate = vi.fn()
  const selectConnection = vi.fn()
  const selectProfile = vi.fn()
@@ -188,7 +188,7 @@ index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d02
 +vi.mock('@/store/gateway', () => ({
 +  requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
 +}))
-
+ 
  vi.mock('react-router', () => ({
    useNavigate: () => navigate
 @@ -154,7 +162,8 @@ const roster: DesktopAgentRoster = {
@@ -241,7 +241,7 @@ index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d02
 +  requestGatewayForAgent.mockResolvedValue({ found: false })
    ;(window as { hermesDesktop?: unknown }).hermesDesktop = { getAgentRoster }
  })
-
+ 
  afterEach(() => {
    cleanup()
    vi.clearAllMocks()
@@ -252,7 +252,7 @@ index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d02
 @@ -341,6 +376,102 @@ describe('ProfileRail fleet mode', () => {
      expect(screen.getByRole('button', { name: 'omer' })).toBeTruthy()
    })
-
+ 
 +  it('labels at-rest squares with their nickname while keeping the technical name', async () => {
 +    armFleet()
 +    await renderFleet()
@@ -353,7 +353,7 @@ index a8d80ffa30831fbe0c6f5afd315ee75d912b1cb1..8bacea5ec4cea5ea42d4e8a3d9423d02
      armFleet()
      profiles.set([
 diff --git a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
-index 4cc5e530f163f388b7d089c9b29bcc431d961742..ae7f18ce03be860eda261b6288b88f385e444600 100644
+index f9c53042c6..31fad8fe5b 100644
 --- a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
 @@ -41,6 +41,7 @@ import {
@@ -407,7 +407,7 @@ index 4cc5e530f163f388b7d089c9b29bcc431d961742..ae7f18ce03be860eda261b6288b88f38
 +    identity.nickname === agent.profile
 +      ? p.fleet.onGateway(agent.profile, agent.connectionLabel)
 +      : `${p.fleet.onGateway(identity.nickname, agent.connectionLabel)} (${agent.profile})`
-
+ 
    const pickColor = (next: null | string) => {
      onRecolor(next)
 @@ -1067,7 +1091,11 @@ function RestSquare({
@@ -443,14 +443,14 @@ index 4cc5e530f163f388b7d089c9b29bcc431d961742..ae7f18ce03be860eda261b6288b88f38
    onDelete,
 @@ -1201,6 +1233,9 @@ function ProfileSquare({
    useEffect(() => clearPress, [])
-
+ 
    const base = CSS.Transform.toString(transform)
 +  // The active ring is painted by an overlay span INSIDE the button rather
 +  // than the button's own inset shadow: the avatar tile covers the button's
 +  // full face, and an inset shadow would disappear behind it.
    const ring = active ? `inset 0 0 0 1.5px ${hue}` : ''
    const lift = isDragging ? '0 6px 16px -4px rgb(0 0 0 / 0.4)' : ''
-
+ 
 @@ -1227,7 +1262,7 @@ function ProfileSquare({
                      ref={setNodeRef}
                      style={{
@@ -483,7 +483,7 @@ index 4cc5e530f163f388b7d089c9b29bcc431d961742..ae7f18ce03be860eda261b6288b88f38
                          overridden profile's square, so which profiles leave this
                          machine is visible at a glance (#91349). */}
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/index.ts b/apps/desktop/src/app/chat/sidebar/projects/index.ts
-index fb242fe73444ea855efdb56d79aaef45ad692c27..391cb8323cef7c5913257dca6be87a948b3a8956 100644
+index 0c8374a653..d0226ee239 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/index.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/index.ts
 @@ -1,7 +1,9 @@
@@ -497,16 +497,16 @@ index fb242fe73444ea855efdb56d79aaef45ad692c27..391cb8323cef7c5913257dca6be87a94
    projectTreeCwd,
    sortProjectsForOverview,
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
-index 8035686f381a7500fbb1901bd5b2bca174e9dd93..baf3fe8bc7ba20e65ce7127f71cd256aa6619893 100644
+index 8035686f38..baf3fe8bc7 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 @@ -1,6 +1,6 @@
  import { describe, expect, it } from 'vitest'
-
+ 
 -import { orderProjectsByIds, sortProjectsForOverview } from './model'
 +import { foldProjectOverview, orderProjectsByIds, sortProjectsForOverview } from './model'
  import { NO_PROJECT_ID, type SidebarProjectTree } from './workspace-groups'
-
+ 
  function makeProject(id: string, sessionCount: number): SidebarProjectTree {
 @@ -76,3 +76,13 @@ describe('sortProjectsForOverview', () => {
      expect(ids(sortProjectsForOverview(projects, 'active'))).toEqual([NO_PROJECT_ID, 'active', 'scanned'])
@@ -523,23 +523,23 @@ index 8035686f381a7500fbb1901bd5b2bca174e9dd93..baf3fe8bc7ba20e65ce7127f71cd256a
 +  })
 +})
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.ts b/apps/desktop/src/app/chat/sidebar/projects/model.ts
-index 0836a089b31a062947e7dda9ca4dc2e27b395d25..b789f441284f37a3feb5f96b074885c8ebad5220 100644
+index 0836a089b3..b789f44128 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.ts
 @@ -16,6 +16,9 @@ export const SIDEBAR_GROUP_PAGE = 5
  // Recent sessions previewed under each project in the overview.
  export const PROJECT_PREVIEW_COUNT = 3
-
+ 
 +// Recent projects shown before the overview folds older rows.
 +export const PROJECT_OVERVIEW_COUNT = 5
 +
  // Max concurrent `git worktree list` probes when a project spans many repos.
  const WORKTREE_PROBE_CONCURRENCY = 4
-
+ 
 @@ -117,6 +120,20 @@ export function orderProjectsByIds(projects: SidebarProjectTree[], orderIds: str
    ])
  }
-
+ 
 +export function foldProjectOverview(
 +  projects: SidebarProjectTree[],
 +  expanded: boolean,
@@ -558,7 +558,7 @@ index 0836a089b31a062947e7dda9ca4dc2e27b395d25..b789f441284f37a3feb5f96b074885c8
  // linked worktrees still appear even when their sessions aren't in the recents
  // payload currently loaded in memory.
 diff --git a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
-index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e706e71630 100644
+index 932a8070c9..c45d3d1ba0 100644
 --- a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
 @@ -1,13 +1,17 @@
@@ -567,7 +567,7 @@ index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e7
  import { atom } from 'nanostores'
  import type * as React from 'react'
  import { afterEach, describe, expect, it, vi } from 'vitest'
-
+ 
 +import type { DesktopAgentRoster } from '@/global'
  import type { SessionInfo } from '@/hermes'
  import { createClientSessionState } from '@/lib/chat-runtime'
@@ -581,9 +581,9 @@ index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e7
  import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
  import type * as SessionStatesStore from '@/store/session-states'
 @@ -15,7 +19,22 @@ import type * as WindowsStore from '@/store/windows'
-
+ 
  import { SidebarSessionRow } from './session-row'
-
+ 
 -afterEach(cleanup)
 +const requestGatewayForAgent = vi.fn()
 +
@@ -601,13 +601,13 @@ index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e7
 +  queryClient.clear()
 +  requestGatewayForAgent.mockReset()
 +})
-
+ 
  vi.mock('@/i18n', () => ({
    useI18n: () => ({
 @@ -411,6 +430,145 @@ describe('SidebarSessionRow', () => {
    })
  })
-
+ 
 +describe('SidebarSessionRow owner identity', () => {
 +  const rosterFixture: DesktopAgentRoster = {
 +    agents: [
@@ -751,7 +751,7 @@ index 932a8070c91735df38404c5c946753a9066ee078..c45d3d1ba04853701929da03af1302e7
    it('gives truncated card lines room for glyph ink instead of clipping them', () => {
      renderRow(
 diff --git a/apps/desktop/src/app/chat/sidebar/session-row.tsx b/apps/desktop/src/app/chat/sidebar/session-row.tsx
-index 41aa0abc2cbaec0f4b7af20052feb16f21062aaa..272c7afbf7a822ac01e5c8090c9a2261137a7f56 100644
+index 41aa0abc2c..272c7afbf7 100644
 --- a/apps/desktop/src/app/chat/sidebar/session-row.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/session-row.tsx
 @@ -10,6 +10,7 @@ import { openSession } from '@/app/open-session'
@@ -808,7 +808,7 @@ index 41aa0abc2cbaec0f4b7af20052feb16f21062aaa..272c7afbf7a822ac01e5c8090c9a2261
 @@ -476,6 +498,19 @@ function SidebarSessionRowImpl({
                </SidebarRowLead>
              )
-
+ 
 +            // Owner identity: the same avatar and visible nickname the rail
 +            // square paints. The muted text keeps the owner discoverable even
 +            // when the image itself is unfamiliar or unavailable.
@@ -875,335 +875,9 @@ index 41aa0abc2cbaec0f4b7af20052feb16f21062aaa..272c7afbf7a822ac01e5c8090c9a2261
                    {session.preview && rowMeta.includes('preview') ? (
                      <span
                        className={cn(
-diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-index dfdfd84f2c63edc728a5150bd49b042f556f66f1..2c256901ce640169cf8ec6ab1c0f6d5cf0e14901 100644
---- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-+++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
-  *  when the backend the app talks to swaps underneath a still-mounted view. */
- export function useOnProfileSwitch(onSwitch: () => void): void {
-   const profile = useStore($activeGatewayProfile)
--  const first = useRef(true)
-+  const previousProfile = useRef(profile)
-
-   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-   useEffect(() => {
--    if (first.current) {
--      first.current = false
--
-+    // React StrictMode replays mount effects in development. A "first effect"
-+    // boolean turns that replay into a fake switch and clears freshly loaded
-+    // Settings drafts, leaving the overlay on skeletons until a page refresh.
-+    // Comparing the identity itself makes both mount passes no-ops while a real
-+    // A → B profile transition still fires exactly once.
-+    if (previousProfile.current === profile) {
-       return
-     }
-
-+    previousProfile.current = profile
-     onSwitch()
-     // Fire on profile change only; onSwitch identity is intentionally ignored.
-     // eslint-disable-next-line react-hooks/exhaustive-deps
-diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index b2c94ecf69a1f44e67f59bb7f3c28a591e8fe1e7..597f860139094a0f9561ad7993ed881398fdda22 100644
---- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-@@ -68,7 +68,6 @@ import {
-   type ToolTitleAction
- } from './fallback-model'
- import { isToolCallPart, summarizeToolRun } from './run-summary'
--import { ToolRunTicker } from './run-ticker'
-
- // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
- // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
-@@ -369,7 +368,9 @@ function ToolEntry({ part }: ToolEntryProps) {
-   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
-   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
-   const isFileEdit = isFileEditTool(toolName)
--  const defaultOpen = Boolean(inlineDiff)
-+  // A live diff is progress, not the handoff: keep it to one quiet row until
-+  // the user asks. Once the turn settles, the finished edit opens as before.
-+  const defaultOpen = Boolean(inlineDiff) && !messageRunning
-   const open = useDisclosureOpen(disclosureId, defaultOpen)
-   const canDismiss = !isPending && !embedded
-   // Only animate entries that mount while their message is actively
-@@ -782,18 +783,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
-   return items
- }
-
--/**
-- * The live run, as one line.
-- *
-- * A run in progress shows only what it is doing right now; each new action
-- * slides the one before it up and out of a single-line window, so a turn that
-- * touches thirty files reads as one line ticking over in place instead of a
-- * list growing down the page. When the run settles the ticker goes away and
-- * the summary above it is all that's left.
-- */
- // The one grey line that stands in for a run of tool calls — "Explored 3
--// files, ran 5 commands". Live, it narrates in the present tense above the
--// ticker and offers no toggle, since there is nothing settled to unfold yet.
-+// files, ran 5 commands". Live, it narrates in the present tense; details stay
-+// behind the same disclosure as settled history.
- function ToolRunHeader({
-   completedAt,
-   live,
-@@ -913,9 +905,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
-  * index is what made an earlier attempt at this reshuffle the moment a turn
-  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
-  *
-- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
-- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
-- * row still owns its own chrome (timer / copy / approval) when shown.
-+ * Live or settled, the summary is the whole of it until the user opens it.
-+ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
-+ * copy / approval) when shown.
-  */
- const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
-   children,
-@@ -942,14 +934,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-     return <>{children}</>
-   }
-
--  // Two things a one-line window can't hold. An approval is a question the
--  // user has to answer, and expanded output is one they went looking for —
--  // both would tick straight past, or be sliced to a single line, as the run
--  // keeps going. Either one hands the run back its full height until the run
--  // settles and the row can be reached through the summary instead.
-+  // Keep live activity as quiet as settled history: the summary stays visible,
-+  // while call details are one click away. Approval remains the sole exception
-+  // because a question that needs the user must never be hidden.
-   const blocked = Boolean(approval) && pendingApprovalTool
--  const unfurled = blocked || rowOpen
--  const expanded = live ? unfurled : (persistedOpen ?? false)
-+  const expanded = blocked || rowOpen || (persistedOpen ?? false)
-
-   return (
-     <div
-@@ -961,12 +950,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-       <ToolRunHeader
-         completedAt={completedAt}
-         live={live}
--        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
-+        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
-         open={expanded}
-         startedAt={startedAt}
-         summary={summary}
-       />
--      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
-       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
-     </div>
-   )
-diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-index 5d66c9d9d392a334a8004d23ad37e6b4b142b156..7d178f29acfcd0cbf41e6a9f7dfed111c1db7442 100644
---- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
-       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
-     })
-   })
-+
-+  it('folds a live diff until requested', async () => {
-+    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
-+    const { container } = render(<GroupHarness message={message} />)
-+
-+    const toggle = await waitFor(() => {
-+      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
-+      expect(button).not.toBeNull()
-+
-+      return button as HTMLButtonElement
-+    })
-+
-+    expect(container.querySelector('[data-file-edit]')).toBeNull()
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
-+  })
- })
-
- // The transcript rests its scaffolding at a fade, keyed off one attribute. A
-@@ -470,56 +488,40 @@ describe('transcript fade', () => {
- })
-
- describe('live tool run', () => {
--  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
-+  it('keeps running details folded behind a summary', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
-
-     await waitFor(() => {
--      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
-     })
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
-
--  it('cannot be collapsed while a tool is still running', async () => {
-+  it('expands and collapses running details on request', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
-
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
--    })
-+    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
-+    fireEvent.click(toggle)
-
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
-+    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-   })
-
-   // Liveness used to also require an unresolved call, which is false for the
-   // instant between one sequential call finishing and the next arriving — so a
--  // string of commands settled and re-opened between every one, unmounting the
--  // ticker and dropping its reel back to the first row instead of scrolling.
-+  // string of commands briefly switched to settled language between calls.
-   it('stays live in the gap between two sequential calls', async () => {
-     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
-
-     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
--    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
--  })
--
--  // The ticker is a one-line window, so a row opened inside it had its output
--  // sliced to that line and then ticked away by the next call. Opening a row
--  // is a request to read it: the run gives up the window until it settles.
--  it('drops the one-line window when a row inside it is opened', async () => {
--    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
--
--    await screen.findByText('Running 2 commands')
--
--    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
--
--    expect(row).not.toBeNull()
--
--    fireEvent.click(row as Element)
--
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
--    })
--
--    // ...and the row it opened is still on screen to be read.
--    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
- })
-
-diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index c72faa80f853c41869b70bb70debc57efcd60ef4..5876a9734fc8354a843e64948d5a44b963be720e 100644
---- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-+++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-@@ -657,9 +657,9 @@ function Sash({
-         // Asymmetric grab band: only 1px reaches into the leading pane so its
-         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
-         // swallowed it entirely — the pointer got col-resize instead of the
--        // thumb). The trailing side keeps a generous 7px reach; total grab
--        // width stays ~8px so the sash is no harder to hit.
--        horizontal ? 'inset-y-0 left-0 w-[8px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[8px] -translate-y-[1px]',
-+        // thumb). Keep only 4px on the trailing side: the previous 7px reach
-+        // grabbed ordinary clicks near a rail and made resizing feel twitchy.
-+        horizontal ? 'inset-y-0 left-0 w-[5px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[5px] -translate-y-[1px]',
-         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
-       )}
-       onDoubleClick={disabled ? undefined : onDoubleClick}
-diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
-index 795d517333939921681d39d20171d51d7e6574c1..359fff069ea633f61c38e2ef8c1264032de8aae4 100644
---- a/apps/desktop/src/global.d.ts
-+++ b/apps/desktop/src/global.d.ts
-@@ -916,6 +916,17 @@ export interface DesktopRegistryConnectionInput {
-   remoteProfile?: string
- }
-
-+// Credential-free profile metadata enumerated with the roster. Mirrors the
-+// Electron shape (electron/connection-registry.ts RosterProfileMetadata):
-+// the main process has attached this to roster rows since the Bot Mode
-+// enumeration; the renderer declaration matches that runtime truth.
-+export interface RosterProfileMetadata {
-+  display_name?: string
-+  title?: string
-+  ui_meta?: Record<string, unknown>
-+  has_avatar?: boolean
-+}
-+
- // One agent in the union roster: a profile on a registered source, with the
- // pre-computed @name-device handle for duplicate profile names.
- export interface DesktopRosterAgent {
-@@ -925,6 +936,8 @@ export interface DesktopRosterAgent {
-   profile: string
-   targetProfile?: string
-   handle: string
-+  /** Rich metadata for this exact connection + profile, when enumerated. */
-+  profileMetadata?: RosterProfileMetadata
- }
-
- export interface DesktopAgentRoster {
-diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
-index 584c00a57ae15f1e62eda5914d52da01774964ba..35b4e5b2bd225d11d7ba9890ce8ea5b5f9f6f519 100644
---- a/apps/desktop/src/store/reasoning-disclosure.ts
-+++ b/apps/desktop/src/store/reasoning-disclosure.ts
-@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
-
- import { persistBoolean, storedBoolean } from '@/lib/storage'
-
--const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
-+const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
-
- /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
--export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
-+export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
-
- $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
-
-diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
-index 9aad4fd8e43197a758a7465b89342daf97af072f..8c0a9a20c32303d7267ed8bd284a094282bfa063 100644
---- a/hermes_cli/web_server.py
-+++ b/hermes_cli/web_server.py
-@@ -18337,6 +18337,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
-         result["customCSS"] = custom_css
-     if component_styles:
-         result["componentStyles"] = component_styles
-+    for key in ("terminalBackground", "terminalForeground"):
-+        value = data.get(key)
-+        if isinstance(value, str) and value.strip():
-+            result[key] = value
-     return result
-
-
-diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index d6feee8ab681d204797ebbd8c2df6837c3850a04..9af5b9fa9f3d363d037464d64a049c8ed9a733e3 100644
---- a/tests/hermes_cli/test_web_server.py
-+++ b/tests/hermes_cli/test_web_server.py
-@@ -3806,6 +3806,19 @@ class TestNormaliseThemeExtensions:
-         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
-         assert len(r2["customCSS"]) <= 32 * 1024
-
-+    def test_terminal_colors_reach_custom_theme_clients(self):
-+        """A user theme can control the xterm canvas and selection contrast."""
-+        from hermes_cli.web_server import _normalise_theme_definition
-+
-+        result = _normalise_theme_definition({
-+            "name": "light-terminal",
-+            "terminalBackground": "#f7f7f7",
-+            "terminalForeground": "#252526",
-+        })
-+
-+        assert result["terminalBackground"] == "#f7f7f7"
-+        assert result["terminalForeground"] == "#252526"
-+
-
-     def test_component_styles_per_bucket(self):
-         from hermes_cli.web_server import _normalise_theme_definition
 diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..8a0b26470259785d6b1bb95c1fd4fa505e3b0ec9
+index 0000000000..8a0b264702
 --- /dev/null
 +++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
 @@ -0,0 +1,40 @@
@@ -1247,9 +921,248 @@ index 0000000000000000000000000000000000000000..8a0b26470259785d6b1bb95c1fd4fa50
 +    expect(onSwitch).toHaveBeenCalledOnce()
 +  })
 +})
+diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+index dfdfd84f2c..2c256901ce 100644
+--- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
++++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
+@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
+  *  when the backend the app talks to swaps underneath a still-mounted view. */
+ export function useOnProfileSwitch(onSwitch: () => void): void {
+   const profile = useStore($activeGatewayProfile)
+-  const first = useRef(true)
++  const previousProfile = useRef(profile)
+ 
+   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
+   useEffect(() => {
+-    if (first.current) {
+-      first.current = false
+-
++    // React StrictMode replays mount effects in development. A "first effect"
++    // boolean turns that replay into a fake switch and clears freshly loaded
++    // Settings drafts, leaving the overlay on skeletons until a page refresh.
++    // Comparing the identity itself makes both mount passes no-ops while a real
++    // A → B profile transition still fires exactly once.
++    if (previousProfile.current === profile) {
+       return
+     }
+ 
++    previousProfile.current = profile
+     onSwitch()
+     // Fire on profile change only; onSwitch identity is intentionally ignored.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+index fd26087e27..84df171ac6 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
+@@ -73,7 +73,6 @@ import {
+   type ToolTitleAction
+ } from './fallback-model'
+ import { isToolCallPart, summarizeToolRun } from './run-summary'
+-import { ToolRunTicker } from './run-ticker'
+ 
+ // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
+ // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
+@@ -374,7 +373,9 @@ function ToolEntry({ part }: ToolEntryProps) {
+   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
+   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
+   const isFileEdit = isFileEditTool(toolName)
+-  const defaultOpen = Boolean(inlineDiff)
++  // A live diff is progress, not the handoff: keep it to one quiet row until
++  // the user asks. Once the turn settles, the finished edit opens as before.
++  const defaultOpen = Boolean(inlineDiff) && !messageRunning
+   const open = useDisclosureOpen(disclosureId, defaultOpen)
+   const canDismiss = !isPending && !embedded
+   // Only animate entries that mount while their message is actively
+@@ -787,18 +788,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
+   return items
+ }
+ 
+-/**
+- * The live run, as one line.
+- *
+- * A run in progress shows only what it is doing right now; each new action
+- * slides the one before it up and out of a single-line window, so a turn that
+- * touches thirty files reads as one line ticking over in place instead of a
+- * list growing down the page. When the run settles the ticker goes away and
+- * the summary above it is all that's left.
+- */
+ // The one grey line that stands in for a run of tool calls — "Explored 3
+-// files, ran 5 commands". Live, it narrates in the present tense above the
+-// ticker and offers no toggle, since there is nothing settled to unfold yet.
++// files, ran 5 commands". Live, it narrates in the present tense; details stay
++// behind the same disclosure as settled history.
+ function ToolRunHeader({
+   completedAt,
+   live,
+@@ -918,9 +910,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+  * index is what made an earlier attempt at this reshuffle the moment a turn
+  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
+  *
+- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
+- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
+- * row still owns its own chrome (timer / copy / approval) when shown.
++ * Live or settled, the summary is the whole of it until the user opens it.
++ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
++ * copy / approval) when shown.
+  */
+ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
+   children,
+@@ -947,14 +939,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+     return <>{children}</>
+   }
+ 
+-  // Two things a one-line window can't hold. An approval is a question the
+-  // user has to answer, and expanded output is one they went looking for —
+-  // both would tick straight past, or be sliced to a single line, as the run
+-  // keeps going. Either one hands the run back its full height until the run
+-  // settles and the row can be reached through the summary instead.
++  // Keep live activity as quiet as settled history: the summary stays visible,
++  // while call details are one click away. Approval remains the sole exception
++  // because a question that needs the user must never be hidden.
+   const blocked = Boolean(approval) && pendingApprovalTool
+-  const unfurled = blocked || rowOpen
+-  const expanded = live ? unfurled : (persistedOpen ?? false)
++  const expanded = blocked || rowOpen || (persistedOpen ?? false)
+ 
+   return (
+     <div
+@@ -966,12 +955,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+       <ToolRunHeader
+         completedAt={completedAt}
+         live={live}
+-        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
++        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
+         open={expanded}
+         startedAt={startedAt}
+         summary={summary}
+       />
+-      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
+       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
+     </div>
+   )
+diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+index 5d66c9d9d3..7d178f29ac 100644
+--- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
++++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
+@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
+       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
+     })
+   })
++
++  it('folds a live diff until requested', async () => {
++    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
++    const { container } = render(<GroupHarness message={message} />)
++
++    const toggle = await waitFor(() => {
++      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
++      expect(button).not.toBeNull()
++
++      return button as HTMLButtonElement
++    })
++
++    expect(container.querySelector('[data-file-edit]')).toBeNull()
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
++  })
+ })
+ 
+ // The transcript rests its scaffolding at a fade, keyed off one attribute. A
+@@ -470,56 +488,40 @@ describe('transcript fade', () => {
+ })
+ 
+ describe('live tool run', () => {
+-  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
++  it('keeps running details folded behind a summary', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+ 
+     await waitFor(() => {
+-      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+     })
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+ 
+-  it('cannot be collapsed while a tool is still running', async () => {
++  it('expands and collapses running details on request', async () => {
+     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
+ 
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
+-    })
++    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
++    fireEvent.click(toggle)
+ 
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
++    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('true')
++
++    fireEvent.click(toggle)
++
++    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
++    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+   })
+ 
+   // Liveness used to also require an unresolved call, which is false for the
+   // instant between one sequential call finishing and the next arriving — so a
+-  // string of commands settled and re-opened between every one, unmounting the
+-  // ticker and dropping its reel back to the first row instead of scrolling.
++  // string of commands briefly switched to settled language between calls.
+   it('stays live in the gap between two sequential calls', async () => {
+     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+ 
+     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
+-    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
+-  })
+-
+-  // The ticker is a one-line window, so a row opened inside it had its output
+-  // sliced to that line and then ticked away by the next call. Opening a row
+-  // is a request to read it: the run gives up the window until it settles.
+-  it('drops the one-line window when a row inside it is opened', async () => {
+-    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
+-
+-    await screen.findByText('Running 2 commands')
+-
+-    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
+-
+-    expect(row).not.toBeNull()
+-
+-    fireEvent.click(row as Element)
+-
+-    await waitFor(() => {
+-      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
+-    })
+-
+-    // ...and the row it opened is still on screen to be read.
+-    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
++    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
+   })
+ })
+ 
+diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+index 15b44edf02..0aff776d49 100644
+--- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
++++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
+@@ -651,9 +651,9 @@ function Sash({
+         // Asymmetric grab band: only 1px reaches into the leading pane so its
+         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
+         // swallowed it entirely — the pointer got col-resize instead of the
+-        // thumb). The trailing side keeps a generous 7px reach; total grab
+-        // width stays ~8px so the sash is no harder to hit.
+-        horizontal ? 'inset-y-0 left-0 w-[8px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[8px] -translate-y-[1px]',
++        // thumb). Keep only 4px on the trailing side: the previous 7px reach
++        // grabbed ordinary clicks near a rail and made resizing feel twitchy.
++        horizontal ? 'inset-y-0 left-0 w-[5px] -translate-x-[1px]' : 'inset-x-0 top-0 h-[5px] -translate-y-[1px]',
+         disabled ? 'pointer-events-none' : horizontal ? 'cursor-col-resize' : 'cursor-row-resize'
+       )}
+       onDoubleClick={disabled ? undefined : onDoubleClick}
 diff --git a/apps/desktop/src/components/ui/profile-avatar.test.tsx b/apps/desktop/src/components/ui/profile-avatar.test.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..fe67703c8c2af1293e9c344e0e4caba12bd64461
+index 0000000000..fe67703c8c
 --- /dev/null
 +++ b/apps/desktop/src/components/ui/profile-avatar.test.tsx
 @@ -0,0 +1,137 @@
@@ -1392,7 +1305,7 @@ index 0000000000000000000000000000000000000000..fe67703c8c2af1293e9c344e0e4caba1
 +})
 diff --git a/apps/desktop/src/components/ui/profile-avatar.tsx b/apps/desktop/src/components/ui/profile-avatar.tsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..6eac87bb0eab30749a030dc5c9799fecf89f33e8
+index 0000000000..6eac87bb0e
 --- /dev/null
 +++ b/apps/desktop/src/components/ui/profile-avatar.tsx
 @@ -0,0 +1,101 @@
@@ -1497,9 +1410,40 @@ index 0000000000000000000000000000000000000000..6eac87bb0eab30749a030dc5c9799fec
 +    </span>
 +  )
 +}
+diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
+index 0362b8ff12..c4cb88ccc6 100644
+--- a/apps/desktop/src/global.d.ts
++++ b/apps/desktop/src/global.d.ts
+@@ -960,6 +960,17 @@ export interface DesktopRegistryConnectionInput {
+   remoteProfile?: string
+ }
+ 
++// Credential-free profile metadata enumerated with the roster. Mirrors the
++// Electron shape (electron/connection-registry.ts RosterProfileMetadata):
++// the main process has attached this to roster rows since the Bot Mode
++// enumeration; the renderer declaration matches that runtime truth.
++export interface RosterProfileMetadata {
++  display_name?: string
++  title?: string
++  ui_meta?: Record<string, unknown>
++  has_avatar?: boolean
++}
++
+ // One agent in the union roster: a profile on a registered source, with the
+ // pre-computed @name-device handle for duplicate profile names.
+ export interface DesktopRosterAgent {
+@@ -969,6 +980,8 @@ export interface DesktopRosterAgent {
+   profile: string
+   targetProfile?: string
+   handle: string
++  /** Rich metadata for this exact connection + profile, when enumerated. */
++  profileMetadata?: RosterProfileMetadata
+ }
+ 
+ export interface DesktopAgentRoster {
 diff --git a/apps/desktop/src/lib/profile-identity.test.ts b/apps/desktop/src/lib/profile-identity.test.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..299a40b9476faec5d8246fe91c27634b160c624b
+index 0000000000..299a40b947
 --- /dev/null
 +++ b/apps/desktop/src/lib/profile-identity.test.ts
 @@ -0,0 +1,135 @@
@@ -1640,7 +1584,7 @@ index 0000000000000000000000000000000000000000..299a40b9476faec5d8246fe91c27634b
 +})
 diff --git a/apps/desktop/src/lib/profile-identity.ts b/apps/desktop/src/lib/profile-identity.ts
 new file mode 100644
-index 0000000000000000000000000000000000000000..04e1bf8aa1dca6e82063cbcbe9b2062f77a33452
+index 0000000000..04e1bf8aa1
 --- /dev/null
 +++ b/apps/desktop/src/lib/profile-identity.ts
 @@ -0,0 +1,104 @@
@@ -1748,3 +1692,59 @@ index 0000000000000000000000000000000000000000..04e1bf8aa1dca6e82063cbcbe9b2062f
 +    profile
 +  })
 +}
+diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
+index 584c00a57a..35b4e5b2bd 100644
+--- a/apps/desktop/src/store/reasoning-disclosure.ts
++++ b/apps/desktop/src/store/reasoning-disclosure.ts
+@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
+ 
+ import { persistBoolean, storedBoolean } from '@/lib/storage'
+ 
+-const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
++const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
+ 
+ /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
+-export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
++export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
+ 
+ $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
+ 
+diff --git a/hermes_cli/web_server_dashboard.py b/hermes_cli/web_server_dashboard.py
+index ca54274b82..6dfbba11cf 100644
+--- a/hermes_cli/web_server_dashboard.py
++++ b/hermes_cli/web_server_dashboard.py
+@@ -396,6 +396,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+         result["customCSS"] = custom_css
+     if component_styles:
+         result["componentStyles"] = component_styles
++    for key in ("terminalBackground", "terminalForeground"):
++        value = data.get(key)
++        if isinstance(value, str) and value.strip():
++            result[key] = value
+     return result
+ 
+ 
+diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
+index 025e0348c5..fe3ed0bc92 100644
+--- a/tests/hermes_cli/test_web_server.py
++++ b/tests/hermes_cli/test_web_server.py
+@@ -3974,6 +3974,19 @@ class TestNormaliseThemeExtensions:
+         r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
+         assert len(r2["customCSS"]) <= 32 * 1024
+ 
++    def test_terminal_colors_reach_custom_theme_clients(self):
++        """A user theme can control the xterm canvas and selection contrast."""
++        from hermes_cli.web_server_dashboard import _normalise_theme_definition
++
++        result = _normalise_theme_definition({
++            "name": "light-terminal",
++            "terminalBackground": "#f7f7f7",
++            "terminalForeground": "#252526",
++        })
++
++        assert result["terminalBackground"] == "#f7f7f7"
++        assert result["terminalForeground"] == "#252526"
++
+ 
+     def test_component_styles_per_bucket(self):
+         from hermes_cli.web_server_dashboard import _normalise_theme_definition

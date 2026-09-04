@@ -146,6 +146,18 @@ case-insensitive, so only one can exist on disk and git reports the other as
 permanently modified — restoring either dirties its twin. A whole-tree guard
 would refuse forever over a file no patch of ours goes near.
 
+Both scripts resolve the Hermes checkout under the **default** `~/.hermes`, not
+under `HERMES_HOME`. A profile home (`~/.hermes/profiles/<name>`) holds no
+source tree and no venv, so a profile-scoped cron tick would otherwise die with
+`Hermes source not found` on every run — a self-healing job that never healed.
+
+When the reconciler reports a patch that "no longer applies", the usual cause is
+upstream **moving** the code, not changing it: Hermes decomposes god files into
+a facade plus `<stem>_<topic>.py` siblings, and `hermes_cli/web_server.py` alone
+shed 18k lines that way in Sep 2026. Grep for the patched function by name
+before deciding a hunk is obsolete, and see `AGENTS.md` §7 for the current home
+of each one.
+
 The script needs the gateway running to fire on schedule — `hermes cron status`
 reports `Gateway is not running` when it cannot, and the job silently never
 executes. Install it as a service with `hermes gateway install`.

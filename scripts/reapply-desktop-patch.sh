@@ -12,6 +12,12 @@ set -euo pipefail
 
 hermes_root="${HERMES_HOME:-$HOME/.hermes}"
 hermes_source="${HERMES_SOURCE_DIR:-$hermes_root/hermes-agent}"
+# A profile HERMES_HOME (~/.hermes/profiles/<name>) holds no checkout — the
+# source tree always lives under the default home. Fall back so a profile-
+# scoped cron tick still finds it.
+if [[ ! -d "$hermes_source/.git" && -d "$HOME/.hermes/hermes-agent/.git" ]]; then
+  hermes_source="$HOME/.hermes/hermes-agent"
+fi
 
 # Prefer a checkout this script is running from; fall back to the usual clone
 # location, then to the installed copy's sibling repository.
