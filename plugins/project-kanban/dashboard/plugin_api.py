@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
 from hermes_cli import kanban_db as kb
+from hermes_cli import kanban_db_connect as kbc
 
 router = APIRouter()
 
@@ -466,7 +467,7 @@ def _board_lanes(
 ) -> dict[str, list[dict[str, Any]]]:
     if not kb.board_exists(board):
         raise HTTPException(status_code=404, detail=f"Board {board!r} is unavailable")
-    conn = kb.connect(board=board)
+    conn = kbc.connect(board=board)
     try:
         tasks = kb.list_tasks(conn, include_archived=False)
     finally:
@@ -548,7 +549,7 @@ def _move_human_lane(conn: Any, task_id: str, lane: str, *, due_date: str | None
 
 
 def _read_inbox_tasks() -> list[kb.Task]:
-    conn = kb.connect(board=INBOX_BOARD)
+    conn = kbc.connect(board=INBOX_BOARD)
     try:
         return kb.list_tasks(conn, include_archived=False)
     finally:
@@ -644,7 +645,7 @@ def create_task(payload: TaskCreate, board: str = LOCAL_BOARD) -> dict[str, Any]
     if project is None:
         raise HTTPException(status_code=422, detail="Canonical project is unavailable")
     category = project["category"]
-    conn = kb.connect(board=board)
+    conn = kbc.connect(board=board)
     try:
         task_id = kb.create_task(
             conn,
@@ -671,7 +672,7 @@ def move_task(task_id: str, payload: TaskMove, board: str = LOCAL_BOARD) -> dict
         item["project_id"]: item for item in _project_records()["items"]
     }
     due_date_provided = "due_date" in payload.model_fields_set
-    conn = kb.connect(board=board)
+    conn = kbc.connect(board=board)
     try:
         task = _move_human_lane(
             conn,
@@ -692,7 +693,7 @@ def capture_inbox(payload: InboxCapture) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="Title is required")
     if not kb.board_exists(INBOX_BOARD):
         raise HTTPException(status_code=404, detail="Inbox is unavailable")
-    conn = kb.connect(board=INBOX_BOARD)
+    conn = kbc.connect(board=INBOX_BOARD)
     try:
         task_id = kb.create_task(
             conn,
@@ -732,8 +733,8 @@ def accept_inbox(task_id: str, payload: InboxAccept, board: str = LOCAL_BOARD) -
         raise HTTPException(status_code=422, detail="Canonical project is unavailable")
     if not kb.board_exists(INBOX_BOARD):
         raise HTTPException(status_code=404, detail="Inbox is unavailable")
-    inbox_conn = kb.connect(board=INBOX_BOARD)
-    target_conn = kb.connect(board=board)
+    inbox_conn = kbc.connect(board=INBOX_BOARD)
+    target_conn = kbc.connect(board=board)
     try:
         with kb.write_txn(inbox_conn):
             candidate = kb.get_task(inbox_conn, task_id)
@@ -795,7 +796,7 @@ def edit_inbox(task_id: str, payload: InboxEdit) -> dict[str, Any]:
         }
         if project_lookup.get(project_id) is None:
             raise HTTPException(status_code=422, detail="Canonical project is unavailable")
-    conn = kb.connect(board=INBOX_BOARD)
+    conn = kbc.connect(board=INBOX_BOARD)
     try:
         now = int(time.time())
         with kb.write_txn(conn):
@@ -846,7 +847,7 @@ def edit_inbox(task_id: str, payload: InboxEdit) -> dict[str, Any]:
 def dismiss_inbox(task_id: str) -> dict[str, bool]:
     if not kb.board_exists(INBOX_BOARD):
         raise HTTPException(status_code=404, detail="Inbox is unavailable")
-    conn = kb.connect(board=INBOX_BOARD)
+    conn = kbc.connect(board=INBOX_BOARD)
     try:
         now = int(time.time())
         with kb.write_txn(conn):

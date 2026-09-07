@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.expanduser(os.environ.get("HERMES_SOURCE_DIR", "~/.hermes/hermes-agent")))
 
 from hermes_cli import kanban_db as kb
+from hermes_cli import kanban_db_connect as kbc
 
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugins" / "project-kanban" / "dashboard" / "plugin_api.py"
@@ -56,7 +57,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         kb.init_db(board="todos")
         kb.create_board("inbox", name="Inbox")
         kb.init_db(board="inbox")
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             ready_id = kb.create_task(
                 conn,
@@ -153,7 +154,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         })
 
     def test_snapshot_moves_unlinked_task_to_legacy(self):
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(
                 conn,
@@ -174,7 +175,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(task["reconciliation"], "unlinked")
 
     def test_snapshot_derives_linked_action_category_from_active_project(self):
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(
                 conn,
@@ -211,7 +212,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             ("Mismatched project", "research", "student-projects", "category-mismatch"),
         )
         task_ids = {}
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             for title, project_id, tenant, _ in cases:
                 task_ids[title] = kb.create_task(
@@ -662,7 +663,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
     def test_title_only_inbox_edit_preserves_legacy_plain_text_body(self):
         original_body = "Legacy notes that must survive a title correction."
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task_id = kb.create_task(
                 conn,
@@ -687,7 +688,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         self.assertEqual(edited.status_code, 200, edited.text)
         self.assertEqual(edited.json()["body"], original_body)
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             stored = kb.get_task(conn, task_id)
             assert stored is not None
@@ -697,7 +698,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
     def test_project_assignment_migrates_legacy_body_without_losing_notes(self):
         original_body = "Legacy notes that must survive project assignment."
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task_id = kb.create_task(
                 conn,
@@ -723,7 +724,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(edited.status_code, 200, edited.text)
         self.assertEqual(edited.json()["body"], original_body)
         self.assertEqual(edited.json()["project_id"], "research")
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             stored = kb.get_task(conn, task_id)
             assert stored is not None
@@ -774,7 +775,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
 
     def test_native_worker_lifecycle_tasks_are_read_only(self):
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(conn, title="Worker task", board="todos")
             task = kb.claim_task(conn, task_id, claimer="test-worker")
@@ -787,7 +788,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             json={"lane": "waiting"},
         )
         self.assertEqual(moved.status_code, 409, moved.text)
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             unchanged = kb.get_task(conn, task_id)
             assert unchanged is not None
@@ -811,7 +812,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         task = created.json()
         self.assertTrue(task["human_managed"])
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             with kb.write_txn(conn):
                 conn.execute(
@@ -856,7 +857,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
                 "project_id": "systems-example-portal",
             },
         })
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(
                 conn,
@@ -909,7 +910,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
                 "project_id": "research",
             },
         })
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(
                 conn,
@@ -945,7 +946,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(moved.status_code, 200, moved.text)
         self.assertEqual(moved.json()["workflow_lane"], "doing")
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             after = kb.get_task(conn, task_id)
         finally:
@@ -959,7 +960,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         # must still be rejected by this endpoint, even at a non-blocked
         # native status and with no active claim — native worker lifecycle
         # semantics are unchanged by the PK-001 fix.
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(conn, title="Native task", board="todos")
             with kb.write_txn(conn):
@@ -975,7 +976,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertIn("read-only", moved.json()["detail"])
 
     def test_human_lane_move_preserves_parent_dependencies(self):
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             parent_id = kb.create_task(conn, title="Parent", board="todos")
         finally:
@@ -984,7 +985,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             "/api/plugins/project-kanban/tasks",
             json={"title": "Child", "project_id": "research"},
         ).json()
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             kb.link_tasks(conn, parent_id, child["id"])
         finally:
@@ -995,7 +996,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             json={"lane": "review"},
         )
         self.assertEqual(moved.status_code, 200, moved.text)
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             link = conn.execute(
                 "SELECT 1 FROM task_links WHERE parent_id = ? AND child_id = ?",
@@ -1073,7 +1074,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             "/api/plugins/project-kanban/inbox/capture",
             json={"title": "Captured", "source": "manual"},
         ).json()
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             suggested_id = kb.create_task(conn, title="Legacy suggestion", board="inbox")
         finally:
@@ -1085,7 +1086,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
     def _hidden_blocked_inbox_task(self, *, locked: bool = False) -> str:
         """A blocked Inbox task that is NOT a review candidate, so it is never listed."""
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task_id = kb.create_task(
                 conn,
@@ -1125,7 +1126,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 409, response.text)
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task = kb.get_task(conn, task_id)
         finally:
@@ -1138,7 +1139,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         response = self.client.delete(f"/api/plugins/project-kanban/inbox/{task_id}")
 
         self.assertEqual(response.status_code, 409, response.text)
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task = kb.get_task(conn, task_id)
         finally:
@@ -1151,7 +1152,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         response = self.client.delete(f"/api/plugins/project-kanban/inbox/{task_id}")
 
         self.assertEqual(response.status_code, 409, response.text)
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             row = conn.execute(
                 "SELECT status, claim_lock, worker_pid FROM tasks WHERE id = ?",
@@ -1177,7 +1178,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         ).json()
         task_id = candidate["id"]
 
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             with kb.write_txn(conn):
                 conn.execute(
@@ -1210,7 +1211,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         ).json()
         task_id = candidate["id"]
 
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             with kb.write_txn(conn):
                 conn.execute(
@@ -1279,7 +1280,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(saved["project_id"], "research")
 
     def test_edit_succeeds_on_suggested_stage_candidate_native_todo_ready_status(self):
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task_id = kb.create_task(conn, title="Legacy suggestion", board="inbox")
             with kb.write_txn(conn):
@@ -1294,7 +1295,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
 
         self.assertEqual(edited.status_code, 200, edited.text)
         self.assertEqual(edited.json()["title"], "Legacy suggestion, revised")
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task = kb.get_task(conn, task_id)
         finally:
@@ -1364,7 +1365,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
         self.assertEqual(edited.status_code, 200, edited.text)
 
-        conn = kb.connect(board="inbox")
+        conn = kbc.connect(board="inbox")
         try:
             task = kb.get_task(conn, candidate["id"])
         finally:
@@ -1418,7 +1419,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(cleared.status_code, 200, cleared.text)
         self.assertIsNone(cleared.json()["due_date"])
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             stored = kb.get_task(conn, task["id"])
         finally:
@@ -1464,7 +1465,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
             )
             self.assertEqual(response.status_code, 422, f"{bad_value!r}: {response.text}")
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             stored = kb.get_task(conn, task["id"])
         finally:
@@ -1474,7 +1475,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         self.assertEqual(metadata["project_kanban"]["lane"], "next")
 
     def test_move_task_with_due_date_still_409s_for_native_worker_lifecycle_task(self):
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             task_id = kb.create_task(conn, title="Worker task", board="todos")
             claimed = kb.claim_task(conn, task_id, claimer="test-worker")
@@ -1494,7 +1495,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
         self.assertEqual(moved_without_due_date.status_code, 409, moved_without_due_date.text)
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             unchanged = kb.get_task(conn, task_id)
             self.assertEqual(unchanged.status, "running")
@@ -1524,7 +1525,7 @@ class ProjectKanbanApiTest(unittest.TestCase):
         )
         task_id = created.json()["id"]
 
-        conn = kb.connect(board="todos")
+        conn = kbc.connect(board="todos")
         try:
             current = conn.execute(
                 "SELECT body FROM tasks WHERE id = ?", (task_id,)

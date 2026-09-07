@@ -78,7 +78,7 @@ def _split(text: str) -> tuple[str, str]:
 
 def _capture(text: str, context: dict) -> str | None:
     """Write the card. Returns the task id, or None when the write failed."""
-    from hermes_cli import kanban_db
+    from hermes_cli import kanban_db, kanban_db_connect
 
     if not kanban_db.board_exists(BOARD):
         kanban_db.create_board(
@@ -86,7 +86,7 @@ def _capture(text: str, context: dict) -> str | None:
             description="Ideas captured from chat, before they are real work.")
 
     kanban_db.init_db(board=BOARD)
-    conn = kanban_db.connect(board=BOARD)
+    conn = kanban_db_connect.connect(board=BOARD)
     try:
         title, body = _split(text)
         detail = [body] if body else []

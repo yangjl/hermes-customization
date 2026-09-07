@@ -15,6 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.expanduser(os.environ.get("HERMES_SOURCE_DIR", "~/.hermes/hermes-agent")))
 
 from hermes_cli import kanban_db as kb
+from hermes_cli import kanban_db_connect as kbc
 
 
 HANDLER = Path(__file__).resolve().parents[1] / "hooks/telegram-idea-capture/handler.py"
@@ -39,7 +40,7 @@ class TelegramCaptureTest(unittest.TestCase):
             handler = load_handler()
             task_id = handler._capture("Review the new maize figures", {"platform": "telegram", "chat_id": "42"})
             duplicate_id = handler._capture("Review the new maize figures", {"platform": "telegram", "chat_id": "42"})
-            conn = kb.connect(board="inbox")
+            conn = kbc.connect(board="inbox")
             try:
                 task = kb.get_task(conn, task_id)
             finally:
@@ -61,7 +62,7 @@ class TelegramCaptureTest(unittest.TestCase):
         ):
             handler = load_handler()
             first_id = handler._capture("Review the new maize figures", {"platform": "telegram", "chat_id": "42"})
-            conn = kb.connect(board="inbox")
+            conn = kbc.connect(board="inbox")
             try:
                 self.assertTrue(kb.archive_task(conn, first_id))
             finally:
@@ -83,7 +84,7 @@ class TelegramCaptureTest(unittest.TestCase):
                     f"Follow up from {platform}",
                     {"platform": platform, "chat_id": platform},
                 )
-                conn = kb.connect(board="inbox")
+                conn = kbc.connect(board="inbox")
                 try:
                     captured[platform] = json.loads(kb.get_task(conn, task_id).body)["source"]
                 finally:

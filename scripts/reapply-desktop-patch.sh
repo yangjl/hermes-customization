@@ -32,7 +32,7 @@ if [[ -z "$repo_dir" ]]; then
 fi
 
 # Every patch this repo overlays, in apply order. `terminal-theme-fields` is a
-# strict subset of the desktop patch's web_server.py hunk, so on a normal tick
+# strict subset of the desktop patch's web_server_dashboard.py hunk, so on a normal tick
 # it is already applied by the time we reach it and is skipped — listing it
 # still matters for the day upstream decouples those files.
 patch_names=(
