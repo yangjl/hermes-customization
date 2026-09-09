@@ -1,8 +1,8 @@
 diff --git a/hermes_cli/web_server_dashboard.py b/hermes_cli/web_server_dashboard.py
-index ca54274b82..6dfbba11cf 100644
+index 510d9906e0..2f39add6ff 100644
 --- a/hermes_cli/web_server_dashboard.py
 +++ b/hermes_cli/web_server_dashboard.py
-@@ -396,6 +396,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+@@ -397,6 +397,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
          result["customCSS"] = custom_css
      if component_styles:
          result["componentStyles"] = component_styles
@@ -14,10 +14,10 @@ index ca54274b82..6dfbba11cf 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 025e0348c5..fd50103829 100644
+index 46c89c37ad..636e71a3f4 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -3975,6 +3975,20 @@ class TestNormaliseThemeExtensions:
+@@ -3974,6 +3974,20 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  
