@@ -212,6 +212,32 @@ No model runs for this job — the script is the job, and it only speaks when it
 did something. It fires only while the gateway is running
 (`hermes gateway start`).
 
+## Profile avatars
+
+The rail and session rows paint a profile's photo from a backend asset at
+`~/.hermes/profiles/<name>/assets/avatar.png` (the patch's profile-identity
+feature reads it; see the table above). That path is **not** version-controlled
+by Hermes, so anything that writes it — the desktop avatar picker, a profile
+reset, a fresh clone — silently replaces the photo with a generated default and
+the original is gone. That happened to `mimi` on 2026-09-04.
+
+The canonical copies live here, one PNG per profile:
+
+```
+assets/profile-avatars/<profile>.png
+```
+
+Restore them onto a machine (idempotent; skips when bytes already match, and
+keeps a timestamped `.bak` of whatever it replaces):
+
+```bash
+scripts/restore-profile-avatars.sh
+```
+
+Square, 512×512 works well — the rail clips to a circle, so keep the face
+centred and away from the corners. To add or update one, drop the PNG in
+`assets/profile-avatars/` named for the profile and run the script.
+
 ## Todo MVP
 
 Hermes already ships a durable Kanban board, so the Todo MVP uses that instead
