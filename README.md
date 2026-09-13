@@ -441,6 +441,33 @@ observation provenance. The Inbox board is created only on the Office Desktop;
 boards are SQLite and gateway-local, and the pane deliberately does not sync
 another machine's board.
 
+## Projects sidebar: curated, not a disk scan
+
+Hermes Desktop auto-discovers every git repository under `$HOME` and lists them
+all in the Projects sidebar — 41 on this machine, which buries the handful
+actually in play. The `mimi` profile has always been curated instead; this is
+that setting applied everywhere:
+
+```bash
+hermes config set desktop.repo_scan_enabled false          # default profile
+hermes -p <name> config set desktop.repo_scan_enabled false # each other profile
+```
+
+`install.sh` applies this preference to the default profile and every existing
+named profile. Profiles remain independent — the installer writes the same
+setting into each one explicitly; it does not add inheritance. Verify with
+`hermes config get desktop.repo_scan_enabled` and
+`hermes -p <name> config get desktop.repo_scan_enabled`.
+
+With the scan off, the sidebar shows only Projects added deliberately (Desktop's
+**+** button, or `hermes project --help`). Hermes clears the cached scan rows by
+itself when the policy changes, so no cleanup is needed. Two related keys exist
+if you would rather narrow the scan than kill it — `desktop.repo_scan_roots`
+restricts where it looks, `desktop.repo_scan_exclude_paths` carves directories
+out.
+
+Adding a Project is unaffected; this only stops the automatic listing.
+
 ## Cortex XDR kills Hermes on a corporate machine
 
 **Symptom.** Hermes and the gateway die without warning, usually on the minute a
@@ -497,6 +524,11 @@ exclusion is still the cleaner long-term answer if your IT team will do it.
    Add `--harden-shell` on a machine running Cortex XDR (see above); without the
    flag the installer only prints a tip, since the guard edits `~/.bashrc`.
 4. If needed, use **Reload desktop plugins** from the command palette.
+5. Project lists are curated automatically: the installer writes
+   `desktop.repo_scan_enabled=false` to the default and every existing named
+   profile. Add new profiles deliberately through the normal Hermes flow; if a
+   new profile starts listing the disk, run
+   `hermes -p <name> config set desktop.repo_scan_enabled false`.
 
 To bring the todo workflow along as well:
 

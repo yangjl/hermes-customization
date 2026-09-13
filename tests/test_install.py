@@ -64,6 +64,72 @@ class InstallTest(unittest.TestCase):
             timeout=30,
         )
 
+    def test_project_scan_is_disabled_for_default_and_existing_profiles(self):
+        """A normal install should reproduce mimi's curated Projects behavior
+        everywhere without introducing profile inheritance."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / ".hermes"
+            for name in ("analyst", "mimi"):
+                (home / "profiles" / name).mkdir(parents=True)
+            bin_dir, log = self._fake_hermes(root)
+            env = dict(
+                os.environ,
+                HOME=str(root),
+                HERMES_HOME=str(home),
+                HERMES_LOG=str(log),
+                PATH=f"{bin_dir}:/usr/bin:/bin",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "install.sh")],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            expected = "config set desktop.repo_scan_enabled false"
+            self.assertIn(expected, calls)
+            self.assertIn(f"-p analyst {expected}", calls)
+            self.assertIn(f"-p mimi {expected}", calls)
+
+    def test_isolated_home_does_not_touch_home_anchored_profiles(self):
+        """Installer tests and profile-scoped installs must stay inside their
+        explicit HERMES_HOME instead of changing unrelated real profiles."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            isolated = root / "isolated-hermes"
+            (root / ".hermes" / "profiles" / "mimi").mkdir(parents=True)
+            bin_dir, log = self._fake_hermes(root)
+            env = dict(
+                os.environ,
+                HOME=str(root),
+                HERMES_HOME=str(isolated),
+                HERMES_LOG=str(log),
+                PATH=f"{bin_dir}:/usr/bin:/bin",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "install.sh")],
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            calls = log.read_text(encoding="utf-8").splitlines()
+            self.assertIn("config set desktop.repo_scan_enabled false", calls)
+            self.assertFalse(
+                any(call.startswith("-p ") for call in calls),
+                "isolated HERMES_HOME must not sweep home-anchored profiles",
+            )
+
     def test_existing_board_is_never_passed_to_idempotent_create(self):
         """Real `boards create` succeeds and rewrites metadata, so it must not run."""
         with tempfile.TemporaryDirectory() as directory:

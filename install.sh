@@ -232,6 +232,22 @@ echo "Installed Telegram capture hook to $hook_target_dir"
 if command -v hermes >/dev/null 2>&1; then
   hermes config set dashboard.theme "$theme_name"
   hermes config set display.skin vscode-light-lab
+  # Curated Projects, not a scan of the disk. Desktop otherwise auto-discovers
+  # every git repo under $HOME and lists all of them in the sidebar (41 on this
+  # machine), which buries the handful of projects actually being worked on.
+  # Off means the sidebar shows only Projects added deliberately; Hermes clears
+  # the cached scan rows itself when this policy changes.
+  hermes config set desktop.repo_scan_enabled false
+  # Profiles deliberately do not inherit the default profile's config. During
+  # a normal install, apply this user-wide preference explicitly to every
+  # existing profile. Skip that home-anchored sweep for an isolated/test
+  # HERMES_HOME so the installer never reaches unrelated real profiles.
+  if [[ -z "${HERMES_HOME:-}" || "$HERMES_HOME" == "$HOME/.hermes" ]]; then
+    for profile_dir in "$HOME/.hermes/profiles"/*; do
+      [[ -d "$profile_dir" ]] || continue
+      hermes -p "$(basename "$profile_dir")" config set desktop.repo_scan_enabled false
+    done
+  fi
 
   if "$enable_project_kanban"; then
     hermes plugins enable project-kanban --no-allow-tool-override
