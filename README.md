@@ -441,11 +441,61 @@ observation provenance. The Inbox board is created only on the Office Desktop;
 boards are SQLite and gateway-local, and the pane deliberately does not sync
 another machine's board.
 
+## Cortex XDR kills Hermes on a corporate machine
+
+**Symptom.** Hermes and the gateway die without warning, usually on the minute a
+cron job fires. Cortex XDR shows a *Behavioral Threat* prevention naming
+`/Applications/Hermes.app/Contents/MacOS/Hermes` or the agent's `venv/bin/python`
+with the action **Terminate Causality** — which kills the entire process tree,
+not just the offending shell.
+
+**Cause — it is the shell, not Hermes.** XDR's BTP matches burst process
+spawning. `nvm.sh` forks ~40 short-lived helpers (`dirname`, `grep`, `sed`,
+`uname`) every time it is sourced, and Hermes' terminal tool sources the rc files
+*twice* per session: once via `bash -l`, once via its environment-snapshot
+prelude. A cron tick that wakes several profiles in the same minute turns that
+into hundreds of processes in a second. Measured on one machine: 14 preventions
+in six days, every one on the `:00` minute of a cron schedule.
+
+**Fix.** Non-interactive shells only need `PATH`, so pin node's bin directory
+statically and return before the completions, hooks, and version managers that
+only an interactive shell wants — the standard Debian-style `case $- in *i*)`
+guard:
+
+```bash
+./scripts/harden-shell-startup.sh           # apply (idempotent)
+./scripts/harden-shell-startup.sh --check   # report state; exit 1 = unguarded
+```
+
+Measured on Desktop-new: one login shell went from **0.39 s to 0.05 s**, and the
+traced startup from 882 lines to 116. `nvm`, `jump`, and the completions all stay
+available in interactive shells; `node`, `npm`, and `git` all stay resolvable in
+non-interactive ones.
+
+The script backs the file up first and **verifies before keeping the change**: it
+diffs the `PATH` a non-interactive shell ends up with, old rc versus new. If any
+still-existing directory would be lost, it reverts byte-for-byte and names the
+offending entry rather than leaving a half-broken shell. Stale `PATH` entries
+that no longer exist on disk are ignored — they contribute no commands.
+
+Two things to know:
+
+- **Switching node versions** means re-running the script (or editing the pinned
+  line). `nvm use` still works normally inside an interactive shell.
+- **If it refuses**, an rc file exports `PATH` after the guard point. Move that
+  export above the guard block, or into `~/.bash_profile`, then re-run.
+
+This is a shell fix, not a Hermes patch — nothing here is reverted by
+`hermes update`, and it needs no help from IT. Getting Cortex XDR to add a BTP
+exclusion is still the cleaner long-term answer if your IT team will do it.
+
 ## Set up another computer
 
 1. Install Hermes and configure that computer's credentials normally.
 2. Clone this private repository.
 3. Run `./install.sh --theme light-lab --with-desktop-patch --install-desktop-app`.
+   Add `--harden-shell` on a machine running Cortex XDR (see above); without the
+   flag the installer only prints a tip, since the guard edits `~/.bashrc`.
 4. If needed, use **Reload desktop plugins** from the command palette.
 
 To bring the todo workflow along as well:

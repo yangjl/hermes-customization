@@ -17,7 +17,7 @@ desktop_patch_file="$repo_dir/patches/desktop-research-workflow.patch"
 theme_name="hermes-focus"
 
 usage() {
-  echo "Usage: ./install.sh [--theme NAME] [--enable-project-kanban] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
+  echo "Usage: ./install.sh [--theme NAME] [--enable-project-kanban] [--harden-shell] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
   echo "Themes: hermes-focus (default), light-lab"
 }
 
@@ -94,6 +94,7 @@ apply_terminal_patch=false
 apply_desktop_patch=false
 install_desktop_app=false
 enable_project_kanban=false
+harden_shell=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --theme)
@@ -115,6 +116,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --enable-project-kanban)
       enable_project_kanban=true
+      shift
+      ;;
+    --harden-shell)
+      harden_shell=true
       shift
       ;;
     -h|--help)
@@ -197,9 +202,25 @@ install -m 0755 "$repo_dir/scripts/reapply-desktop-patch.sh" \
   "$script_target_dir/reapply-desktop-patch.sh"
 install -m 0755 "$repo_dir/scripts/harden-hermes-python-env.sh" \
   "$script_target_dir/harden-hermes-python-env.sh"
+install -m 0755 "$repo_dir/scripts/harden-shell-startup.sh" \
+  "$script_target_dir/harden-shell-startup.sh"
 echo "Installed vault refresh script to $script_target_dir"
 echo "Installed Desktop patch restore script to $script_target_dir"
 echo "Installed Hermes Python environment hardener to $script_target_dir"
+echo "Installed shell startup hardener to $script_target_dir"
+
+# The shell guard edits ~/.bashrc, so it is opt-in rather than automatic: a
+# machine without Cortex XDR does not need it, and an rc file that exports PATH
+# late needs a human to reorder it first (the script refuses and explains).
+if "$harden_shell"; then
+  "$script_target_dir/harden-shell-startup.sh" ||
+    echo "Shell hardening declined — see the message above; ~/.bashrc is unchanged." >&2
+else
+  if ! "$script_target_dir/harden-shell-startup.sh" --check >/dev/null 2>&1; then
+    echo "Tip: this machine's login shell is unguarded. If Cortex XDR kills Hermes," \
+         "re-run with --harden-shell."
+  fi
+fi
 
 install -d "$hook_target_dir"
 install -m 0644 "$repo_dir/hooks/telegram-idea-capture/HOOK.yaml" \
