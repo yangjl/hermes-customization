@@ -58,10 +58,10 @@ index f0bdc16d0d..3acc826c73 100644
      })
    }
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index d01f31e90f..c6631ffd5c 100644
+index f5b7ed2cb6..cf15c1eaab 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
-@@ -155,6 +155,7 @@ import { ProjectDialog } from './project-dialog'
+@@ -156,6 +156,7 @@ import { ProjectDialog } from './project-dialog'
  import { resolveLiveProjectFilter } from './project-filter'
  import {
    excludeProjectSessions,
@@ -69,7 +69,7 @@ index d01f31e90f..c6631ffd5c 100644
    orderProjectsByIds,
    overlayLiveLanes,
    overlayLivePreviews,
-@@ -182,6 +183,7 @@ import { buildSessionByAnyId, resolvePinnedSessions } from './session-index'
+@@ -183,6 +184,7 @@ import { buildSessionByAnyId, resolvePinnedSessions } from './session-index'
  import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
  import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
  import { useEnteredProjectSessions } from './use-entered-project-sessions'
@@ -77,7 +77,7 @@ index d01f31e90f..c6631ffd5c 100644
  
  // Non-session groups (messaging platforms) stay compact: show a few rows up
  // front, reveal more in larger steps on demand. Keeps a busy platform from
-@@ -337,6 +339,14 @@ export function ChatSidebar({
+@@ -338,6 +340,14 @@ export function ChatSidebar({
    const { t } = useI18n()
    const s = t.sidebar
    const { pathname } = useLocation()
@@ -92,7 +92,7 @@ index d01f31e90f..c6631ffd5c 100644
    // Contributed nav rows (plugins pairing a page with a sidebar entry) render
    // below the built-ins with the same chrome; active = at their route.
    const navContributions = useContributions(SIDEBAR_NAV_AREA)
-@@ -460,6 +470,7 @@ export function ChatSidebar({
+@@ -462,6 +472,7 @@ export function ChatSidebar({
    const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
    const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
    const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
@@ -100,7 +100,7 @@ index d01f31e90f..c6631ffd5c 100644
    const messagingOpenIds = useStore($sidebarMessagingOpenIds)
    // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
    const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
-@@ -1126,6 +1137,11 @@ export function ChatSidebar({
+@@ -1140,6 +1151,11 @@ export function ChatSidebar({
    // The project overview (drill-in list) vs. the entered project's content.
    const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
  
@@ -112,7 +112,7 @@ index d01f31e90f..c6631ffd5c 100644
    // Preview rows come from the backend tree (each project carries its
    // most-recent sessions), overlaid with live $sessions so a just-created
    // session shows under its project instantly (and with its working arc),
-@@ -1423,7 +1439,14 @@ export function ChatSidebar({
+@@ -1443,7 +1459,14 @@ export function ChatSidebar({
  
    // Persist the new project overview order (drag-to-reorder); orderByIds applies
    // it over the default sort, so stale/new ids reconcile on the next render.
@@ -128,7 +128,7 @@ index d01f31e90f..c6631ffd5c 100644
  
    // Sortable rows carry live session ids; the pinned store is keyed by durable
    // (lineage-root) ids, so translate before persisting the new order.
-@@ -1528,7 +1551,7 @@ export function ChatSidebar({
+@@ -1548,7 +1571,7 @@ export function ChatSidebar({
                      }
                      type="button"
                    >
@@ -137,7 +137,7 @@ index d01f31e90f..c6631ffd5c 100644
                      {/* Shrink-to-fit, not flex-1: the label carries the row's
                          `data-tour` handle, and anything anchored to it should
                          land at the end of the WORD, not out at the sidebar's
-@@ -1694,7 +1717,19 @@ export function ChatSidebar({
+@@ -1714,7 +1737,19 @@ export function ChatSidebar({
                    )
                  }
                  footer={
@@ -158,7 +158,7 @@ index d01f31e90f..c6631ffd5c 100644
                    // themselves. Profile groups don't: this one footer fetches the
                    // next page, which grows every profile at once.
                    !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
-@@ -1834,7 +1869,7 @@ export function ChatSidebar({
+@@ -1854,7 +1889,7 @@ export function ChatSidebar({
                    inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
                  }
                  projectContent={inProject ? enteredProjectContent : undefined}
@@ -758,10 +758,10 @@ index 932a8070c9..91097b8b39 100644
    it('gives truncated card lines room for glyph ink instead of clipping them', () => {
      renderRow(
 diff --git a/apps/desktop/src/app/chat/sidebar/session-row.tsx b/apps/desktop/src/app/chat/sidebar/session-row.tsx
-index 41aa0abc2c..44f7badd10 100644
+index cfe2076fb2..6491ee1846 100644
 --- a/apps/desktop/src/app/chat/sidebar/session-row.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/session-row.tsx
-@@ -10,6 +10,7 @@ import { openSession } from '@/app/open-session'
+@@ -11,6 +11,7 @@ import { openSession } from '@/app/open-session'
  import { formatMessageTimestamp } from '@/components/assistant-ui/thread/timestamp'
  import { Button } from '@/components/ui/button'
  import { Codicon } from '@/components/ui/codicon'
@@ -769,7 +769,7 @@ index 41aa0abc2c..44f7badd10 100644
  import { OverflowTip, Tip } from '@/components/ui/tooltip'
  import type { SessionInfo } from '@/hermes'
  import { type Translations, useI18n } from '@/i18n'
-@@ -19,13 +20,16 @@ import { compactNumber } from '@/lib/format'
+@@ -19,13 +20,16 @@ import { pathLeaf } from '@/lib/display-path'
  import { triggerHaptic } from '@/lib/haptics'
  import { middleClickHandlers } from '@/lib/middle-click'
  import { displayModelName } from '@/lib/model-status-label'
@@ -963,10 +963,10 @@ index dfdfd84f2c..2c256901ce 100644
      // Fire on profile change only; onSwitch identity is intentionally ignored.
      // eslint-disable-next-line react-hooks/exhaustive-deps
 diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index fd26087e27..84df171ac6 100644
+index bd8135e047..0eba4650e1 100644
 --- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
 +++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-@@ -73,7 +73,6 @@ import {
+@@ -75,7 +75,6 @@ import {
    type ToolTitleAction
  } from './fallback-model'
  import { isToolCallPart, summarizeToolRun } from './run-summary'
@@ -974,7 +974,7 @@ index fd26087e27..84df171ac6 100644
  
  // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
  // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
-@@ -374,7 +373,9 @@ function ToolEntry({ part }: ToolEntryProps) {
+@@ -376,7 +375,9 @@ function ToolEntry({ part }: ToolEntryProps) {
    const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
    const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
    const isFileEdit = isFileEditTool(toolName)
@@ -985,7 +985,7 @@ index fd26087e27..84df171ac6 100644
    const open = useDisclosureOpen(disclosureId, defaultOpen)
    const canDismiss = !isPending && !embedded
    // Only animate entries that mount while their message is actively
-@@ -787,18 +788,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
+@@ -789,18 +790,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
    return items
  }
  
@@ -1006,7 +1006,7 @@ index fd26087e27..84df171ac6 100644
  function ToolRunHeader({
    completedAt,
    live,
-@@ -918,9 +910,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+@@ -920,9 +912,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
   * index is what made an earlier attempt at this reshuffle the moment a turn
   * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
   *
@@ -1019,7 +1019,7 @@ index fd26087e27..84df171ac6 100644
   */
  const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
    children,
-@@ -947,14 +939,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+@@ -949,14 +941,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
      return <>{children}</>
    }
  
@@ -1038,7 +1038,7 @@ index fd26087e27..84df171ac6 100644
  
    return (
      <div
-@@ -966,12 +955,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+@@ -968,12 +957,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
        <ToolRunHeader
          completedAt={completedAt}
          live={live}
@@ -1156,10 +1156,10 @@ index 5d66c9d9d3..7d178f29ac 100644
  })
  
 diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index f51069d6ed..e0932f6f62 100644
+index d32d4abd94..6f4cd40d29 100644
 --- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 +++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-@@ -751,9 +751,9 @@ function Sash({
+@@ -766,9 +766,9 @@ function Sash({
          // Asymmetric grab band: only 1px reaches into the leading pane so its
          // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
          // swallowed it entirely — the pointer got col-resize instead of the
@@ -1425,10 +1425,10 @@ index 0000000000..fb25c3925a
 +  )
 +}
 diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
-index 641d7bfb6e..0a0b9897dc 100644
+index 6e4b48f732..d977b63b4a 100644
 --- a/apps/desktop/src/global.d.ts
 +++ b/apps/desktop/src/global.d.ts
-@@ -966,6 +966,17 @@ export interface DesktopRegistryConnectionInput {
+@@ -1024,6 +1024,17 @@ export interface DesktopRegistryConnectionInput {
    remoteProfile?: string
  }
  
@@ -1446,7 +1446,7 @@ index 641d7bfb6e..0a0b9897dc 100644
  // One agent in the union roster: a profile on a registered source, with the
  // pre-computed @name-device handle for duplicate profile names.
  export interface DesktopRosterAgent {
-@@ -975,6 +986,8 @@ export interface DesktopRosterAgent {
+@@ -1033,6 +1044,8 @@ export interface DesktopRosterAgent {
    profile: string
    targetProfile?: string
    handle: string
@@ -1723,8 +1723,60 @@ index 584c00a57a..35b4e5b2bd 100644
  
  $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
  
+diff --git a/hermes_cli/web_routers/cron.py b/hermes_cli/web_routers/cron.py
+index 43ed0ba76b..c604d6b3ca 100644
+--- a/hermes_cli/web_routers/cron.py
++++ b/hermes_cli/web_routers/cron.py
+@@ -26,6 +26,9 @@ router = APIRouter()
+ 
+ _find_cron_job_profile = late("_find_cron_job_profile", "hermes_cli.web_server_cron")
+ _fire_cron_job_for_profile = late("_fire_cron_job_for_profile", "hermes_cli.web_server_cron")
++_cron_profile_owned_by_running_gateway = late(
++    "_cron_profile_owned_by_running_gateway", "hermes_cli.web_server_cron"
++)
+ _forward_cron_fire_to_gateway = late("_forward_cron_fire_to_gateway", "hermes_cli.web_server_cron")
+ _gateway_intentionally_stopped = late("_gateway_intentionally_stopped", "hermes_cli.web_server_cron")
+ _notify_cron_provider_for_profile = late("_notify_cron_provider_for_profile", "hermes_cli.web_server_cron")
+@@ -172,6 +175,11 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
+ def _trigger_cron_job_sync(job_id: str, profile: Optional[str] = None):
+     selected = _job_profile(job_id, profile)
+     job = _found(_call_cron_for_profile(selected, "resolve_job_ref", job_id))
++    if _cron_profile_owned_by_running_gateway(selected):
++        # Keep the execution out of Electron's causality tree. trigger_job()
++        # persists an immediate manual occurrence; the separate gateway's next
++        # tick claims and executes it with its own process ancestry.
++        return _found(_call_cron_for_profile(selected, "trigger_job", job["id"]))
+     # Never expose the job as due before claiming it: the built-in ticker and
+     # external/manual fire paths share one durable claim, so only one executes
+     # this run even racing across processes. Active jobs keep the legacy call
+diff --git a/hermes_cli/web_server_cron.py b/hermes_cli/web_server_cron.py
+index 63e301a67b..cb9dcc8040 100644
+--- a/hermes_cli/web_server_cron.py
++++ b/hermes_cli/web_server_cron.py
+@@ -123,6 +123,21 @@ def _cron_profile_home(profile: Optional[str]) -> Tuple[str, Path]:
+     return canon, profiles_mod.get_profile_dir(canon)
+ 
+ 
++def _cron_profile_owned_by_running_gateway(profile: Optional[str]) -> bool:
++    """Whether a separate gateway owns execution for ``profile``.
++
++    A Desktop-triggered run must only mark the job due when a gateway is alive:
++    the gateway is outside Electron's causality tree, while an inline fire is
++    not.  The next gateway tick consumes the durable manual-run marker.
++    """
++    profile_name, home = _cron_profile_home(profile)
++    from hermes_cli.profiles import _check_gateway_running, _served_by_running_multiplexer
++
++    return _check_gateway_running(home) or (
++        profile_name != "default" and _served_by_running_multiplexer(profile_name)
++    )
++
++
+ def _annotate_cron_job(job: Dict[str, Any], profile: str, home: Path) -> Dict[str, Any]:
+     return {
+         **job,
 diff --git a/hermes_cli/web_server_dashboard.py b/hermes_cli/web_server_dashboard.py
-index 510d9906e0..2f39add6ff 100644
+index 5fdbb2e0b6..639c76b0d7 100644
 --- a/hermes_cli/web_server_dashboard.py
 +++ b/hermes_cli/web_server_dashboard.py
 @@ -397,6 +397,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
@@ -1739,10 +1791,10 @@ index 510d9906e0..2f39add6ff 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 46c89c37ad..636e71a3f4 100644
+index 24acdae6b9..d2121143fb 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -3974,6 +3974,20 @@ class TestNormaliseThemeExtensions:
+@@ -4037,6 +4037,20 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  
@@ -1760,6 +1812,178 @@ index 46c89c37ad..636e71a3f4 100644
 +        assert result["terminalBackground"] == "#f7f7f7"
 +        assert result["terminalForeground"] == "#252526"
 +
- 
+
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server_dashboard import _normalise_theme_definition
+diff --git a/tests/hermes_cli/test_web_server_cron_profiles.py b/tests/hermes_cli/test_web_server_cron_profiles.py
+index 9e345c5faf..2b21d2147e 100644
+--- a/tests/hermes_cli/test_web_server_cron_profiles.py
++++ b/tests/hermes_cli/test_web_server_cron_profiles.py
+@@ -586,6 +586,46 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
+     assert untouched["last_run_at"] is None
+ 
+ 
++@pytest.mark.asyncio
++async def test_trigger_cron_job_defers_to_running_gateway(
++    isolated_profiles,
++    monkeypatch,
++):
++    """A Desktop request only schedules the fire when the gateway owns this profile.
++
++    The external gateway runs outside Electron's causality tree, so a Cortex
++    prevention cannot terminate the Desktop while a manually triggered cron
++    job executes.
++    """
++    from hermes_cli import web_server
++
++    job = _web_server_cron._call_cron_for_profile(
++        "worker_alpha",
++        "create_job",
++        prompt="run through gateway",
++        schedule="every 1h",
++        name="gateway-owned-trigger-job",
++    )
++
++    monkeypatch.setattr(
++        _web_server_cron,
++        "_cron_profile_owned_by_running_gateway",
++        lambda _profile: True,
++    )
++    monkeypatch.setattr(
++        _web_server_cron,
++        "_fire_cron_job_for_profile",
++        lambda *_args, **_kwargs: (_ for _ in ()).throw(
++            AssertionError("Desktop must not run a gateway-owned cron job inline")
++        ),
++    )
++
++    triggered = await _rt_cron.trigger_cron_job(job["id"], profile="worker_alpha")
++
++    assert triggered["manual_run_at"] is not None
++    assert triggered["last_run_at"] is None
++
++
+ @pytest.mark.asyncio
+ async def test_trigger_cron_job_reports_lost_claim_as_conflict(
+     isolated_profiles,
+diff --git a/tests/tools/test_cronjob_run_background.py b/tests/tools/test_cronjob_run_background.py
+index 122913e8b4..83ae274868 100644
+--- a/tests/tools/test_cronjob_run_background.py
++++ b/tests/tools/test_cronjob_run_background.py
+@@ -296,6 +296,36 @@ class TestInFlightDedupe:
+ 
+ 
+ class TestCronjobRunToolIntegration:
++    def test_desktop_run_defers_to_gateway_owner(self, monkeypatch):
++        """Desktop must not execute a cron inside Electron's causality tree
++        when the independent gateway already owns this profile."""
++        triggered = {
++            **_job("job-bg-gateway"),
++            "manual_run_at": "2026-09-13T14:48:25-05:00",
++        }
++        monkeypatch.setenv("HERMES_DESKTOP", "1")
++
++        with patch("tools.cronjob_tools.resolve_job_ref", return_value=_job("job-bg-gateway")), \
++             patch("hermes_cli.profiles.get_active_profile_name", return_value="mimi"), \
++             patch("hermes_cli.profiles._check_gateway_running", return_value=False), \
++             patch("hermes_cli.profiles._served_by_running_multiplexer", return_value=True), \
++             patch("tools.cronjob_tools.trigger_job", return_value=triggered) as m_trigger, \
++             patch("tools.cronjob_tools._try_dispatch_background_run") as m_background:
++            out = json.loads(cronjob(
++                action="run",
++                job_id="job-bg-gateway",
++                prompt="one-fire context",
++            ))
++
++        assert out["success"] is True
++        assert out["job"]["execution_mode"] == "gateway"
++        assert out["job"]["queued_for_gateway"] is True
++        m_trigger.assert_called_once_with(
++            "job-bg-gateway",
++            extra_prompt="one-fire context",
++        )
++        m_background.assert_not_called()
++
+     def test_run_action_returns_background_note(self):
+         """cronjob(action='run') surfaces the handle + do-not-wait note."""
+         with _bound_session_key():
+diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
+index 78c7ac5cc9..c0bd96f2d3 100644
+--- a/tools/cronjob_tools.py
++++ b/tools/cronjob_tools.py
+@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
+ 
+ import copy
+ 
+-from hermes_constants import display_hermes_home
++from hermes_constants import display_hermes_home, get_hermes_home
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -44,6 +44,7 @@ from cron.jobs import (
+     resnapshot_all_unpinned,
+     resnapshot_job,
+     resume_job,
++    trigger_job,
+     update_job)
+ from tools.cronjob_prompt_scan import _scan_cron_prompt
+ from tools.cronjob_job_args import (
+@@ -631,6 +632,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
+     return _format_job(get_job(job_id) or {"id": job_id})
+ 
+ 
++def _queue_desktop_run_on_gateway(
++    job: Dict[str, Any], extra_prompt: Optional[str] = None,
++) -> Optional[str]:
++    """Keep a Desktop manual run out of Electron when a gateway owns the profile."""
++    import os
++
++    if os.getenv("HERMES_DESKTOP") != "1":
++        return None
++
++    from hermes_cli.profiles import (
++        _check_gateway_running,
++        _served_by_running_multiplexer,
++        get_active_profile_name,
++    )
++
++    profile = get_active_profile_name()
++    gateway_owns_profile = bool(_check_gateway_running(Path(get_hermes_home()))) or (
++        profile not in ("default", "custom")
++        and _served_by_running_multiplexer(profile)
++    )
++    if not gateway_owns_profile:
++        return None
++
++    triggered = trigger_job(job["id"], extra_prompt=extra_prompt)
++    if triggered is None:
++        return tool_error(f"Failed to queue cron job '{job['id']}' for the gateway", success=False)
++
++    _notify_provider_jobs_changed_safe()
++    result = _format_job(triggered)
++    result["executed"] = True
++    result["execution_mode"] = "gateway"
++    result["queued_for_gateway"] = True
++    return _dumps({
++        "success": True,
++        "job": result,
++        "note": (
++            "The independent gateway owns this profile. The manual run was "
++            "queued durably for its next scheduler tick instead of executing "
++            "inside the Desktop process."),
++    })
++
++
+ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
+     job_id = job["id"]
+     # `prompt` on run is transient per-fire context appended to the stored prompt, never
+@@ -641,6 +684,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
+         scan_error = _scan_cron_prompt(extra_prompt)
+         if scan_error:
+             return tool_error(scan_error, success=False)
++    gateway_run = _queue_desktop_run_on_gateway(job, extra_prompt=extra_prompt)
++    if gateway_run is not None:
++        return gateway_run
+     # A manual run must actually run even with no ticker active. Preferred: background
+     # dispatch (handle now, outcome as a completion event); inline fallback otherwise.
+     bg = _try_dispatch_background_run(job, session_id=a["session_id"], extra_prompt=extra_prompt)

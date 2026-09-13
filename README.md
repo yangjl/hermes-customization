@@ -476,13 +476,11 @@ cron job fires. Cortex XDR shows a *Behavioral Threat* prevention naming
 with the action **Terminate Causality** — which kills the entire process tree,
 not just the offending shell.
 
-**Cause — it is the shell, not Hermes.** XDR's BTP matches burst process
-spawning. `nvm.sh` forks ~40 short-lived helpers (`dirname`, `grep`, `sed`,
-`uname`) every time it is sourced, and Hermes' terminal tool sources the rc files
-*twice* per session: once via `bash -l`, once via its environment-snapshot
-prelude. A cron tick that wakes several profiles in the same minute turns that
-into hundreds of processes in a second. Measured on one machine: 14 preventions
-in six days, every one on the `:00` minute of a cron schedule.
+**First cause — shell startup.** XDR's BTP matches burst process spawning.
+`nvm.sh` forks ~40 short-lived helpers (`dirname`, `grep`, `sed`, `uname`) every
+time it is sourced, and Hermes' terminal tool sources the rc files twice per
+session. A cron tick that wakes several profiles in the same minute turns that
+into hundreds of processes in a second.
 
 **Fix.** Non-interactive shells only need `PATH`, so pin node's bin directory
 statically and return before the completions, hooks, and version managers that
@@ -515,6 +513,21 @@ Two things to know:
 This is a shell fix, not a Hermes patch — nothing here is reverted by
 `hermes update`, and it needs no help from IT. Getting Cortex XDR to add a BTP
 exclusion is still the cleaner long-term answer if your IT team will do it.
+
+**Second cause — Desktop's manual-run paths.** When a supervised multiplex
+gateway is already running, the Desktop patch does not execute a manually
+triggered cron job inside Electron's causality tree — whether it came from the
+Cron page's Run now action or `cronjob_manage(action="run")` in Desktop chat. It
+marks the job due instead, including any one-fire prompt; the gateway claims it
+on its next tick (within 60 seconds) and runs it outside the Desktop tree. This
+keeps the same cron capability while preventing a Cortex prevention from
+terminating the Desktop app. Without a running gateway, Desktop retains its
+native inline fallback.
+
+This second part is a source patch in
+`patches/desktop-research-workflow.patch`; apply it with
+`--with-desktop-patch` and keep the scheduled reconciler enabled after Hermes
+updates.
 
 ## Set up another computer
 

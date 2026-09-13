@@ -202,6 +202,7 @@ section:
 | Narrower sash grab band (`tree-split.tsx`) | Absent — still 8px |
 | Reasoning collapsed by default (`reasoning-disclosure.ts`) | Absent — default still `false` |
 | Terminal theme fields in `web_server_dashboard.py` (+ test) | Absent — duplicate of `terminal-theme-fields.patch` |
+| Gateway-owned manual cron fire (`web_server_cron.py`, `cronjob_tools.py` + tests) | Absent — Desktop still executes dashboard/chat Run now inline even when a supervised multiplex gateway owns the profile |
 
 Removed from the patch because native Hermes covers the need:
 
