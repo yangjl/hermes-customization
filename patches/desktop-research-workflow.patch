@@ -963,7 +963,7 @@ index dfdfd84f2c..2c256901ce 100644
      // Fire on profile change only; onSwitch identity is intentionally ignored.
      // eslint-disable-next-line react-hooks/exhaustive-deps
 diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index bd8135e047..0eba4650e1 100644
+index ef1bca8c1a..6bcda46bb3 100644
 --- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
 +++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
 @@ -75,7 +75,6 @@ import {
@@ -974,9 +974,9 @@ index bd8135e047..0eba4650e1 100644
  
  // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
  // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
-@@ -376,7 +375,9 @@ function ToolEntry({ part }: ToolEntryProps) {
+@@ -388,7 +387,9 @@ function ToolEntry({ part }: ToolEntryProps) {
    const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
-   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
+   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(toolResultRecord(stablePart))
    const isFileEdit = isFileEditTool(toolName)
 -  const defaultOpen = Boolean(inlineDiff)
 +  // A live diff is progress, not the handoff: keep it to one quiet row until
@@ -985,28 +985,41 @@ index bd8135e047..0eba4650e1 100644
    const open = useDisclosureOpen(disclosureId, defaultOpen)
    const canDismiss = !isPending && !embedded
    // Only animate entries that mount while their message is actively
-@@ -789,18 +790,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
-   return items
+@@ -809,17 +810,15 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
  }
  
--/**
+ /**
 - * The live run, as one line.
-- *
++ * One quiet summary for a grouped tool run.
+  *
 - * A run in progress shows only what it is doing right now; each new action
 - * slides the one before it up and out of a single-line window, so a turn that
 - * touches thirty files reads as one line ticking over in place instead of a
 - * list growing down the page. When the run settles the ticker goes away and
 - * the summary above it is all that's left.
-- */
++ * Live and settled runs keep their rows behind the same explicit disclosure,
++ * so a long turn does not grow the transcript while its details remain one
++ * click away. Approval is handled separately and is never hidden.
+  */
  // The one grey line that stands in for a run of tool calls — "Explored 3
 -// files, ran 5 commands". Live, it narrates in the present tense above the
--// ticker and offers no toggle, since there is nothing settled to unfold yet.
+-// ticker by default; its toggle can reveal the activity before it settles.
 +// files, ran 5 commands". Live, it narrates in the present tense; details stay
 +// behind the same disclosure as settled history.
  function ToolRunHeader({
    completedAt,
    live,
-@@ -920,9 +912,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+@@ -879,8 +878,7 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
+     // Live means the turn is still working and nothing has come after this run
+     // — not that some call is unresolved. Those differ in the gap between one
+     // call finishing and the next arriving, which for sequential calls is most
+-    // of the run: it fell back to past tense there, unmounting the ticker and
+-    // dropping its reel to the top instead of scrolling.
++    // of the run: it briefly fell back to past tense there.
+     //
+     // The tail bound is what keeps this honest — a turn that ends, or an agent
+     // that moves on to later parts, leaves the run settled and collapsible.
+@@ -958,9 +956,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
   * index is what made an earlier attempt at this reshuffle the moment a turn
   * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
   *
@@ -1019,8 +1032,8 @@ index bd8135e047..0eba4650e1 100644
   */
  const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
    children,
-@@ -949,14 +941,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-     return <>{children}</>
+@@ -987,10 +985,8 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+     return <ToolRunDisclosureContext.Provider value={disclosureId}>{children}</ToolRunDisclosureContext.Provider>
    }
  
 -  // Two things a one-line window can't hold. An approval is a question the
@@ -1032,31 +1045,37 @@ index bd8135e047..0eba4650e1 100644
 +  // while call details are one click away. Approval remains the sole exception
 +  // because a question that needs the user must never be hidden.
    const blocked = Boolean(approval) && pendingApprovalTool
--  const unfurled = blocked || rowOpen
--  const expanded = live ? unfurled : (persistedOpen ?? false)
-+  const expanded = blocked || rowOpen || (persistedOpen ?? false)
- 
-   return (
-     <div
-@@ -968,12 +957,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-       <ToolRunHeader
-         completedAt={completedAt}
-         live={live}
--        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
-+        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
-         open={expanded}
-         startedAt={startedAt}
-         summary={summary}
-       />
--      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
-       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
-     </div>
-   )
+   const expanded = blocked || (persistedOpen ?? rowOpen)
+@@ -1011,7 +1007,6 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
+           startedAt={startedAt}
+           summary={summary}
+         />
+-        {live && !expanded && <ToolRunTicker>{children}</ToolRunTicker>}
+         {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
+       </div>
+     </ToolRunDisclosureContext.Provider>
 diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-index 5d66c9d9d3..7d178f29ac 100644
+index 3d3d2f818f..b4d1fee66a 100644
 --- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
 +++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
+@@ -16,10 +16,8 @@
+ $displayTimestamps.set(true)
+-
+-// A run of tool calls collapses to a one-line summary once it has settled, but
+-// a run with anything still pending always renders its rows. That rule is what
+-// keeps the "approval must never be buried" bug fixed: an inline ApprovalBar
+-// only ever exists on a pending tool, and a pending tool's run is never behind
+-// a chevron. These cover both halves — the collapse itself, and the approval
+-// staying in the visual flow.
+-
++
++// A run of tool calls stays behind a one-line summary while live and after it
++// settles. A pending approval is the exception: it forces the rows visible so
++// the inline ApprovalBar is never buried behind a chevron. These cover both
++// halves — the quiet collapse and the approval staying in the visual flow.
++
+ const createdAt = new Date('2026-06-03T00:00:00.000Z')
+@@ -450,6 +448,24 @@ describe('a file edit among ordinary activity', () => {
        expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
      })
    })
@@ -1081,7 +1100,7 @@ index 5d66c9d9d3..7d178f29ac 100644
  })
  
  // The transcript rests its scaffolding at a fade, keyed off one attribute. A
-@@ -470,56 +488,40 @@ describe('transcript fade', () => {
+@@ -470,12 +486,15 @@ describe('transcript fade', () => {
  })
  
  describe('live tool run', () => {
@@ -1098,25 +1117,46 @@ index 5d66c9d9d3..7d178f29ac 100644
 +    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
    })
  
--  it('cannot be collapsed while a tool is still running', async () => {
-+  it('expands and collapses running details on request', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
- 
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
--    })
-+    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
-+    fireEvent.click(toggle)
- 
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
+   it('honors explicit disclosure across live updates and completion', async () => {
+@@ -486,12 +505,7 @@ describe('live tool run', () => {
+     await waitFor(() => expect(toggle()).not.toBeNull())
+     fireEvent.click(toggle())
+     expect(toggle().getAttribute('aria-expanded')).toBe('true')
+-    expect(container.querySelector('[data-tool-ticker]')).toBeNull()
+-    fireEvent.click(toggle())
+-    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
+-    expect(row).not.toBeNull()
+-    fireEvent.click(row as Element)
+-    await waitFor(() => expect(container.querySelector('[data-tool-ticker]')).toBeNull())
 +    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+ 
+     const next = {
+       ...message,
+@@ -515,6 +529,23 @@ describe('live tool run', () => {
+     expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
    })
+ 
++  it('lets an explicit group collapse override an open child row', async () => {
++    const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
++    const toggle = () => container.querySelector('[data-tool-summary] button[aria-expanded]') as HTMLButtonElement
++
++    await waitFor(() => expect(toggle()).not.toBeNull())
++    fireEvent.click(toggle())
++    const row = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
++    expect(row).not.toBeNull()
++    fireEvent.click(row as Element)
++    await waitFor(() => expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull())
++
++    fireEvent.click(toggle())
++
++    await waitFor(() => expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0))
++    expect(toggle().getAttribute('aria-expanded')).toBe('false')
++  })
++
+   it('updates named skill summaries when identifying arguments arrive late', async () => {
+     const message = groupedPendingMessage()
+     const first = { ...message.content[0], toolName: 'skill_view', args: {}, result: { success: true } }
+@@ -532,36 +563,13 @@ describe('live tool run', () => {
  
    // Liveness used to also require an unresolved call, which is false for the
    // instant between one sequential call finishing and the next arriving — so a
@@ -1128,7 +1168,7 @@ index 5d66c9d9d3..7d178f29ac 100644
  
      expect(await screen.findByText('Running 2 commands')).toBeTruthy()
 -    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
+-    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).not.toBeNull()
 -  })
 -
 -  // The ticker is a one-line window, so a row opened inside it had its output
@@ -1151,6 +1191,7 @@ index 5d66c9d9d3..7d178f29ac 100644
 -
 -    // ...and the row it opened is still on screen to be read.
 -    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
++    expect(container.querySelector('[data-tool-ticker]')).toBeNull()
 +    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
    })
  })
@@ -1724,7 +1765,7 @@ index 584c00a57a..35b4e5b2bd 100644
  $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
  
 diff --git a/hermes_cli/web_routers/cron.py b/hermes_cli/web_routers/cron.py
-index 43ed0ba76b..c604d6b3ca 100644
+index 43ed0ba76b..879f2f7569 100644
 --- a/hermes_cli/web_routers/cron.py
 +++ b/hermes_cli/web_routers/cron.py
 @@ -26,6 +26,9 @@ router = APIRouter()
@@ -1737,15 +1778,19 @@ index 43ed0ba76b..c604d6b3ca 100644
  _forward_cron_fire_to_gateway = late("_forward_cron_fire_to_gateway", "hermes_cli.web_server_cron")
  _gateway_intentionally_stopped = late("_gateway_intentionally_stopped", "hermes_cli.web_server_cron")
  _notify_cron_provider_for_profile = late("_notify_cron_provider_for_profile", "hermes_cli.web_server_cron")
-@@ -172,6 +175,11 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
+@@ -172,6 +175,15 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
  def _trigger_cron_job_sync(job_id: str, profile: Optional[str] = None):
      selected = _job_profile(job_id, profile)
      job = _found(_call_cron_for_profile(selected, "resolve_job_ref", job_id))
 +    if _cron_profile_owned_by_running_gateway(selected):
 +        # Keep the execution out of Electron's causality tree. trigger_job()
 +        # persists an immediate manual occurrence; the separate gateway's next
-+        # tick claims and executes it with its own process ancestry.
-+        return _found(_call_cron_for_profile(selected, "trigger_job", job["id"]))
++        # tick claims and executes it with its own process ancestry. Notify the
++        # selected provider as well: built-in polling sees the marker naturally,
++        # while an external scheduler needs its reconciliation hook.
++        triggered = _found(_call_cron_for_profile(selected, "trigger_job", job["id"]))
++        _notify_cron_provider_for_profile(selected)
++        return triggered
      # Never expose the job as due before claiming it: the built-in ticker and
      # external/manual fire paths share one durable claim, so only one executes
      # this run even racing across processes. Active jobs keep the legacy call
@@ -1791,10 +1836,10 @@ index 5fdbb2e0b6..639c76b0d7 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 24acdae6b9..d2121143fb 100644
+index 3c63087fc7..6c3b6e1a53 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -4037,6 +4037,20 @@ class TestNormaliseThemeExtensions:
+@@ -4039,6 +4039,20 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  
@@ -1812,14 +1857,15 @@ index 24acdae6b9..d2121143fb 100644
 +        assert result["terminalBackground"] == "#f7f7f7"
 +        assert result["terminalForeground"] == "#252526"
 +
-
+-
++
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server_dashboard import _normalise_theme_definition
 diff --git a/tests/hermes_cli/test_web_server_cron_profiles.py b/tests/hermes_cli/test_web_server_cron_profiles.py
-index 9e345c5faf..2b21d2147e 100644
+index 9e345c5faf..a15016880d 100644
 --- a/tests/hermes_cli/test_web_server_cron_profiles.py
 +++ b/tests/hermes_cli/test_web_server_cron_profiles.py
-@@ -586,6 +586,46 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
+@@ -586,6 +586,53 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
      assert untouched["last_run_at"] is None
  
  
@@ -1856,11 +1902,18 @@ index 9e345c5faf..2b21d2147e 100644
 +            AssertionError("Desktop must not run a gateway-owned cron job inline")
 +        ),
 +    )
++    notified_profiles = []
++    monkeypatch.setattr(
++        _web_server_cron,
++        "_notify_cron_provider_for_profile",
++        notified_profiles.append,
++    )
 +
 +    triggered = await _rt_cron.trigger_cron_job(job["id"], profile="worker_alpha")
 +
 +    assert triggered["manual_run_at"] is not None
 +    assert triggered["last_run_at"] is None
++    assert notified_profiles == ["worker_alpha"]
 +
 +
  @pytest.mark.asyncio
@@ -1908,7 +1961,7 @@ index 122913e8b4..83ae274868 100644
          """cronjob(action='run') surfaces the handle + do-not-wait note."""
          with _bound_session_key():
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 78c7ac5cc9..c0bd96f2d3 100644
+index 79048541b8..7df67b6175 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
 @@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
@@ -1928,7 +1981,7 @@ index 78c7ac5cc9..c0bd96f2d3 100644
      update_job)
  from tools.cronjob_prompt_scan import _scan_cron_prompt
  from tools.cronjob_job_args import (
-@@ -631,6 +632,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
+@@ -663,6 +664,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
      return _format_job(get_job(job_id) or {"id": job_id})
  
  
@@ -1977,7 +2030,7 @@ index 78c7ac5cc9..c0bd96f2d3 100644
  def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
      job_id = job["id"]
      # `prompt` on run is transient per-fire context appended to the stored prompt, never
-@@ -641,6 +684,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
+@@ -673,6 +716,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
          scan_error = _scan_cron_prompt(extra_prompt)
          if scan_error:
              return tool_error(scan_error, success=False)
