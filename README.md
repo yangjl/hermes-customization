@@ -30,8 +30,8 @@ called done. Read it before adding a customization.
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
   five-project recent list, profile avatars and nicknames in the rail and
-  session rows, folded live tool runs, panel sizing, profile switching, and
-  tests. The context meter and cross-surface skin support are native Hermes now
+  session rows, panel sizing, profile switching, and tests. The context meter,
+  cross-surface skin support, and folded live tool runs are native Hermes now
   and no longer patched; the skin's `desktop_*` color overrides are ignored by
   the native skin SDK. The three-line composer sizing was dropped as well.
 - `install.sh` — installs and activates the theme.

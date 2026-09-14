@@ -962,199 +962,6 @@ index dfdfd84f2c..2c256901ce 100644
      onSwitch()
      // Fire on profile change only; onSwitch identity is intentionally ignored.
      // eslint-disable-next-line react-hooks/exhaustive-deps
-diff --git a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-index bd8135e047..0eba4650e1 100644
---- a/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/fallback.tsx
-@@ -75,7 +75,6 @@ import {
-   type ToolTitleAction
- } from './fallback-model'
- import { isToolCallPart, summarizeToolRun } from './run-summary'
--import { ToolRunTicker } from './run-ticker'
- 
- // `true` when a ToolEntry is rendered inside an embedding wrapper that owns
- // the per-row chrome (timer / preview). The flat ToolGroupSlot sets this
-@@ -376,7 +375,9 @@ function ToolEntry({ part }: ToolEntryProps) {
-   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
-   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
-   const isFileEdit = isFileEditTool(toolName)
--  const defaultOpen = Boolean(inlineDiff)
-+  // A live diff is progress, not the handoff: keep it to one quiet row until
-+  // the user asks. Once the turn settles, the finished edit opens as before.
-+  const defaultOpen = Boolean(inlineDiff) && !messageRunning
-   const open = useDisclosureOpen(disclosureId, defaultOpen)
-   const canDismiss = !isPending && !embedded
-   // Only animate entries that mount while their message is actively
-@@ -789,18 +790,9 @@ export function splitRunItems(toolNames: readonly string[]): RunItem[] {
-   return items
- }
- 
--/**
-- * The live run, as one line.
-- *
-- * A run in progress shows only what it is doing right now; each new action
-- * slides the one before it up and out of a single-line window, so a turn that
-- * touches thirty files reads as one line ticking over in place instead of a
-- * list growing down the page. When the run settles the ticker goes away and
-- * the summary above it is all that's left.
-- */
- // The one grey line that stands in for a run of tool calls — "Explored 3
--// files, ran 5 commands". Live, it narrates in the present tense above the
--// ticker and offers no toggle, since there is nothing settled to unfold yet.
-+// files, ran 5 commands". Live, it narrates in the present tense; details stay
-+// behind the same disclosure as settled history.
- function ToolRunHeader({
-   completedAt,
-   live,
-@@ -920,9 +912,9 @@ function useToolRun(startIndex: number, endIndex: number): ToolRunState {
-  * index is what made an earlier attempt at this reshuffle the moment a turn
-  * settled. `lib/tool-run-continuity.test.ts` locks that agreement down.
-  *
-- * Live, the run is a summary plus the one-line ticker. Settled, the summary is
-- * the whole of it until the user opens it. `ToolEmbedContext` is false so each
-- * row still owns its own chrome (timer / copy / approval) when shown.
-+ * Live or settled, the summary is the whole of it until the user opens it.
-+ * `ToolEmbedContext` is false so each row still owns its own chrome (timer /
-+ * copy / approval) when shown.
-  */
- const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> = ({
-   children,
-@@ -949,14 +941,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-     return <>{children}</>
-   }
- 
--  // Two things a one-line window can't hold. An approval is a question the
--  // user has to answer, and expanded output is one they went looking for —
--  // both would tick straight past, or be sliced to a single line, as the run
--  // keeps going. Either one hands the run back its full height until the run
--  // settles and the row can be reached through the summary instead.
-+  // Keep live activity as quiet as settled history: the summary stays visible,
-+  // while call details are one click away. Approval remains the sole exception
-+  // because a question that needs the user must never be hidden.
-   const blocked = Boolean(approval) && pendingApprovalTool
--  const unfurled = blocked || rowOpen
--  const expanded = live ? unfurled : (persistedOpen ?? false)
-+  const expanded = blocked || rowOpen || (persistedOpen ?? false)
- 
-   return (
-     <div
-@@ -968,12 +957,11 @@ const ToolRun: FC<PropsWithChildren<{ endIndex: number; startIndex: number }>> =
-       <ToolRunHeader
-         completedAt={completedAt}
-         live={live}
--        onToggle={live ? undefined : () => setToolDisclosureOpen(disclosureId, !expanded)}
-+        onToggle={() => setToolDisclosureOpen(disclosureId, !expanded)}
-         open={expanded}
-         startedAt={startedAt}
-         summary={summary}
-       />
--      {live && !unfurled && <ToolRunTicker>{children}</ToolRunTicker>}
-       {expanded && <div className="grid min-w-0 max-w-full gap-(--tool-row-gap)">{children}</div>}
-     </div>
-   )
-diff --git a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-index 5d66c9d9d3..7d178f29ac 100644
---- a/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-+++ b/apps/desktop/src/components/assistant-ui/tool/tool-group.test.tsx
-@@ -450,6 +450,24 @@ describe('a file edit among ordinary activity', () => {
-       expect(container.querySelector('[data-tool-row][data-file-edit]')).not.toBeNull()
-     })
-   })
-+
-+  it('folds a live diff until requested', async () => {
-+    const message = { ...editBetweenRunsMessage(), status: { type: 'running' as const } }
-+    const { container } = render(<GroupHarness message={message} />)
-+
-+    const toggle = await waitFor(() => {
-+      const button = container.querySelector('[data-tool-row] button[aria-expanded="false"]')
-+      expect(button).not.toBeNull()
-+
-+      return button as HTMLButtonElement
-+    })
-+
-+    expect(container.querySelector('[data-file-edit]')).toBeNull()
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelector('[data-file-edit]')).not.toBeNull()
-+  })
- })
- 
- // The transcript rests its scaffolding at a fade, keyed off one attribute. A
-@@ -470,56 +488,40 @@ describe('transcript fade', () => {
- })
- 
- describe('live tool run', () => {
--  it('keeps its rows on screen instead of hiding them behind the summary', async () => {
-+  it('keeps running details folded behind a summary', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
- 
-     await waitFor(() => {
--      expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
-     })
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
- 
--  it('cannot be collapsed while a tool is still running', async () => {
-+  it('expands and collapses running details on request', async () => {
-     const { container } = render(<GroupHarness message={groupedPendingMessage()} />)
- 
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-summary]')).not.toBeNull()
--    })
-+    const toggle = await screen.findByRole('button', { name: /explored.*running/i })
-+    fireEvent.click(toggle)
- 
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
-+    expect(container.querySelectorAll('[data-tool-row]').length).toBeGreaterThan(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
-+
-+    fireEvent.click(toggle)
-+
-+    expect(container.querySelectorAll('[data-tool-row]')).toHaveLength(0)
-+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-   })
- 
-   // Liveness used to also require an unresolved call, which is false for the
-   // instant between one sequential call finishing and the next arriving — so a
--  // string of commands settled and re-opened between every one, unmounting the
--  // ticker and dropping its reel back to the first row instead of scrolling.
-+  // string of commands briefly switched to settled language between calls.
-   it('stays live in the gap between two sequential calls', async () => {
-     const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
- 
-     expect(await screen.findByText('Running 2 commands')).toBeTruthy()
--    expect(container.querySelector('[data-tool-ticker]')).not.toBeNull()
--    expect(container.querySelector('[data-tool-summary] button[aria-expanded]')).toBeNull()
--  })
--
--  // The ticker is a one-line window, so a row opened inside it had its output
--  // sliced to that line and then ticked away by the next call. Opening a row
--  // is a request to read it: the run gives up the window until it settles.
--  it('drops the one-line window when a row inside it is opened', async () => {
--    const { container } = render(<GroupHarness message={betweenSequentialCallsMessage()} />)
--
--    await screen.findByText('Running 2 commands')
--
--    const row = container.querySelector('[data-tool-ticker] [data-tool-row] button[aria-expanded="false"]')
--
--    expect(row).not.toBeNull()
--
--    fireEvent.click(row as Element)
--
--    await waitFor(() => {
--      expect(container.querySelector('[data-tool-ticker]')).toBeNull()
--    })
--
--    // ...and the row it opened is still on screen to be read.
--    expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
-+    expect(container.querySelector('[data-tool-summary] button[aria-expanded="false"]')).not.toBeNull()
-   })
- })
- 
 diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 index d32d4abd94..6f4cd40d29 100644
 --- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
@@ -1791,10 +1598,10 @@ index 5fdbb2e0b6..639c76b0d7 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 24acdae6b9..d2121143fb 100644
+index 3c63087fc7..6c3b6e1a53 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -4037,6 +4037,20 @@ class TestNormaliseThemeExtensions:
+@@ -4039,6 +4039,20 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  
@@ -1812,7 +1619,7 @@ index 24acdae6b9..d2121143fb 100644
 +        assert result["terminalBackground"] == "#f7f7f7"
 +        assert result["terminalForeground"] == "#252526"
 +
-
+ 
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server_dashboard import _normalise_theme_definition
 diff --git a/tests/hermes_cli/test_web_server_cron_profiles.py b/tests/hermes_cli/test_web_server_cron_profiles.py
@@ -1908,7 +1715,7 @@ index 122913e8b4..83ae274868 100644
          """cronjob(action='run') surfaces the handle + do-not-wait note."""
          with _bound_session_key():
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 78c7ac5cc9..c0bd96f2d3 100644
+index 79048541b8..7df67b6175 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
 @@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
@@ -1928,7 +1735,7 @@ index 78c7ac5cc9..c0bd96f2d3 100644
      update_job)
  from tools.cronjob_prompt_scan import _scan_cron_prompt
  from tools.cronjob_job_args import (
-@@ -631,6 +632,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
+@@ -663,6 +664,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
      return _format_job(get_job(job_id) or {"id": job_id})
  
  
@@ -1977,7 +1784,7 @@ index 78c7ac5cc9..c0bd96f2d3 100644
  def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
      job_id = job["id"]
      # `prompt` on run is transient per-fire context appended to the stored prompt, never
-@@ -641,6 +684,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
+@@ -673,6 +716,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
          scan_error = _scan_cron_prompt(extra_prompt)
          if scan_error:
              return tool_error(scan_error, success=False)

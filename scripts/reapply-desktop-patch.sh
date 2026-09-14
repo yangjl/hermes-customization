@@ -65,6 +65,7 @@ cd "$hermes_source"
 "$script_dir/harden-hermes-python-env.sh"
 
 applied=()
+applied_count=0
 for name in "${patch_names[@]}"; do
   patch_file="$repo_dir/patches/$name.patch"
 
@@ -84,7 +85,7 @@ for name in "${patch_names[@]}"; do
   # one can exist, so git reports the other as permanently modified and
   # restoring either dirties its twin. An unscoped guard would refuse forever
   # over a file no patch of ours goes near.
-  if [[ ${#applied[@]} -eq 0 ]]; then
+  if [[ $applied_count -eq 0 ]]; then
     conflicting="$(git status --porcelain -- $(patch_paths "$patch_file"))"
     if [[ -n "$conflicting" ]]; then
       fail "Hermes source has uncommitted changes to patched files; reapply skipped. Inspect $hermes_source"
@@ -97,12 +98,20 @@ for name in "${patch_names[@]}"; do
     # to the paths this run touched, so an unrelated local edit survives; the
     # rollback covers every patch applied so far, making a run all-or-nothing.
     rollback_paths=()
-    for prior in "${applied[@]}" "$name"; do
+    rollback_path_count=0
+    rollback_patches=("$name")
+    if [[ $applied_count -gt 0 ]]; then
+      rollback_patches=("${applied[@]}" "$name")
+    fi
+    for prior in "${rollback_patches[@]}"; do
       while IFS= read -r p; do
-        [[ -n "$p" ]] && rollback_paths+=("$p")
+        if [[ -n "$p" ]]; then
+          rollback_paths+=("$p")
+          rollback_path_count=$((rollback_path_count + 1))
+        fi
       done < <(patch_paths "$repo_dir/patches/$prior.patch")
     done
-    if [[ ${#rollback_paths[@]} -gt 0 ]]; then
+    if [[ $rollback_path_count -gt 0 ]]; then
       git checkout -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
       git clean -fd -- "${rollback_paths[@]}" >/dev/null 2>&1 || true
     fi
@@ -110,10 +119,11 @@ for name in "${patch_names[@]}"; do
   fi
 
   applied+=("$name")
+  applied_count=$((applied_count + 1))
 done
 
 # Nothing drifted: stay silent so a scheduled run produces no notification.
-if [[ ${#applied[@]} -eq 0 ]]; then
+if [[ $applied_count -eq 0 ]]; then
   exit 0
 fi
 
