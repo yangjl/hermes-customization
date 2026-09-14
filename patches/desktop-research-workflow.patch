@@ -1531,7 +1531,7 @@ index 584c00a57a..35b4e5b2bd 100644
  $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
  
 diff --git a/hermes_cli/web_routers/cron.py b/hermes_cli/web_routers/cron.py
-index 43ed0ba76b..c604d6b3ca 100644
+index 43ed0ba76b..879f2f7569 100644
 --- a/hermes_cli/web_routers/cron.py
 +++ b/hermes_cli/web_routers/cron.py
 @@ -26,6 +26,9 @@ router = APIRouter()
@@ -1544,15 +1544,19 @@ index 43ed0ba76b..c604d6b3ca 100644
  _forward_cron_fire_to_gateway = late("_forward_cron_fire_to_gateway", "hermes_cli.web_server_cron")
  _gateway_intentionally_stopped = late("_gateway_intentionally_stopped", "hermes_cli.web_server_cron")
  _notify_cron_provider_for_profile = late("_notify_cron_provider_for_profile", "hermes_cli.web_server_cron")
-@@ -172,6 +175,11 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
+@@ -172,6 +175,15 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
  def _trigger_cron_job_sync(job_id: str, profile: Optional[str] = None):
      selected = _job_profile(job_id, profile)
      job = _found(_call_cron_for_profile(selected, "resolve_job_ref", job_id))
 +    if _cron_profile_owned_by_running_gateway(selected):
 +        # Keep the execution out of Electron's causality tree. trigger_job()
 +        # persists an immediate manual occurrence; the separate gateway's next
-+        # tick claims and executes it with its own process ancestry.
-+        return _found(_call_cron_for_profile(selected, "trigger_job", job["id"]))
++        # tick claims and executes it with its own process ancestry. Notify the
++        # selected provider as well: built-in polling sees the marker naturally,
++        # while an external scheduler needs its reconciliation hook.
++        triggered = _found(_call_cron_for_profile(selected, "trigger_job", job["id"]))
++        _notify_cron_provider_for_profile(selected)
++        return triggered
      # Never expose the job as due before claiming it: the built-in ticker and
      # external/manual fire paths share one durable claim, so only one executes
      # this run even racing across processes. Active jobs keep the legacy call
@@ -1623,10 +1627,10 @@ index 3c63087fc7..6c3b6e1a53 100644
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server_dashboard import _normalise_theme_definition
 diff --git a/tests/hermes_cli/test_web_server_cron_profiles.py b/tests/hermes_cli/test_web_server_cron_profiles.py
-index 9e345c5faf..2b21d2147e 100644
+index 9e345c5faf..a15016880d 100644
 --- a/tests/hermes_cli/test_web_server_cron_profiles.py
 +++ b/tests/hermes_cli/test_web_server_cron_profiles.py
-@@ -586,6 +586,46 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
+@@ -586,6 +586,53 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
      assert untouched["last_run_at"] is None
  
  
@@ -1663,11 +1667,18 @@ index 9e345c5faf..2b21d2147e 100644
 +            AssertionError("Desktop must not run a gateway-owned cron job inline")
 +        ),
 +    )
++    notified_profiles = []
++    monkeypatch.setattr(
++        _web_server_cron,
++        "_notify_cron_provider_for_profile",
++        notified_profiles.append,
++    )
 +
 +    triggered = await _rt_cron.trigger_cron_job(job["id"], profile="worker_alpha")
 +
 +    assert triggered["manual_run_at"] is not None
 +    assert triggered["last_run_at"] is None
++    assert notified_profiles == ["worker_alpha"]
 +
 +
  @pytest.mark.asyncio
