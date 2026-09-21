@@ -17,9 +17,12 @@ called done. Read it before adding a customization.
 - `desktop-plugins/project-kanban/plugin.js` — Project Kanban pane (opt-in).
 - `plugins/project-kanban/` — scoped backend for the Project Kanban pane.
 - `sketches/` — disposable visual MVPs; approved before a UI surface is built.
+- `plugins/research-dbtl/` — Codex-first Research DBTL plugin: a local review
+  panel and skill using the existing Hermes Kanban, with configurable agent roles.
+  `sketches/research-dbtl/index.html` is the approved MVP 03 design evidence.
 - `web-report/index.html` — content-rich Research portfolio report.
 - `docs/hermes-focus-design.md` — audit, design rationale, and validation plan.
-- `plugins/` — backend (web-dashboard) plugins.
+- `plugins/` — Hermes backend plugins and the Codex Research DBTL package.
 - `scripts/refresh-todo-vault.py` — deterministic device-observation publisher for Project Kanban.
 - `scripts/reapply-desktop-patch.sh` — restores the Desktop patch after a Hermes update.
 - `scripts/harden-hermes-python-env.sh` — strips `__PYVENV_LAUNCHER__` from Hermes'
@@ -556,3 +559,167 @@ To bring the todo workflow along as well:
 
 API keys, tokens, sessions, and machine-specific launchers are intentionally
 not stored in this repository.
+
+
+## Codex Research DBTL
+
+Install only the Codex plugin (does not alter Hermes themes or enable plugins):
+
+```bash
+./install.sh --codex-dbtl-only
+codex plugin add research-dbtl@personal
+```
+
+The installer registers `~/.agents/plugins/marketplace.json` using Codex's bundled
+plugin-creator helper and copies the package to `~/plugins/research-dbtl`. If your
+existing personal marketplace has another name, use that name with `plugin add`.
+Start a fresh Codex task to discover the skill. Invoke Research DBTL there and
+provide the research directory and canonical project note. No project, worker,
+server or scheduled job starts during installation.
+
+Requires a current Hermes checkout with native Kanban (`274bc7b8f613` verified),
+its Python environment, and Codex plugin-creator. `HERMES_SOURCE_DIR` selects the
+checkout (default `~/.hermes/hermes-agent`); `HERMES_HOME` selects its data/profile.
+`CODEX_PLUGIN_CREATOR` may point to another installed helper's
+`scripts/create_basic_plugin.py`. For a separate installation root, set matching
+`CODEX_PLUGIN_PARENT=<root>/plugins` and
+`CODEX_MARKETPLACE_PATH=<root>/.agents/plugins/marketplace.json` (explicit nondefault
+marketplaces need Codex marketplace registration). Installation is repeatable;
+it preserves other plugins and marketplace policies. Obsolete files from older
+package versions are not pruned.
+
+Example, in a **research directory**, using an existing board or creating it once:
+
+```bash
+export HERMES_SOURCE_DIR="${HERMES_SOURCE_DIR:-$HOME/.hermes/hermes-agent}"
+dbtl_python="$HERMES_SOURCE_DIR/venv/bin/python"
+dbtl_tool="$HOME/plugins/research-dbtl/scripts/dbtl.py"
+"$dbtl_python" "$dbtl_tool" --project /path/to/research init --name 'My study' --board research
+"$dbtl_python" "$dbtl_tool" --project /path/to/research serve
+```
+
+Open the printed local URL in Codex's browser. It contains a session capability;
+do not share it. The server binds only to loopback and stops with Ctrl-C. Roles
+opens the defaults for coordinator, Design, Build, Test and Learn. Default lead
+is Codex; any role can be Codex, Claude or Hermes. Changes apply to new tasks;
+queued cards can be reassigned explicitly. Active claims retain their owner.
+
+**Agents** opens the avatar editor. Choose Codex, Claude or Hermes, upload a PNG,
+JPEG or WebP up to 5 MiB, then **Save avatars**. Pictures are center-cropped to
+256 × 256 and displayed on task cards, role chips and card details. Cancel
+discards edits; Remove restores initials after saving. Each picture follows its
+agent when roles change. Images are stored locally in the research project's
+configuration, survive reload/restart/plugin updates, and are never uploaded to
+an external service.
+
+**Completed cycles** folds any cycle whose cards are all done with current evidence.
+Expand the section, then a cycle, to inspect its cards. A cycle with unfinished
+work or stale evidence stays on the active board. Source Build links reveal the
+referenced card, and **Back to active work** returns to the current cycle.
+The section's open/closed preference is local to this browser and project;
+folding never archives native tasks or changes results/approvals.
+
+**Agent defaults** sets each agent's working folder, repository, skills and
+instructions for this project. In a card, open **Task settings → Edit task
+settings** to override individual fields; checked fields inherit the assigned
+agent's current defaults. Empty skills, instructions or repository are explicit
+empty overrides. Working folder must be an absolute local path. Skills are
+comma-separated names or paths; repository is a local path or URL, not an
+automatic clone command. Cancel discards edits; Save persists locally. Concurrent
+edits to the same settings are rejected with a refresh message.
+
+Settings configure future claims, including when edited on a completed card.
+Claiming records a fixed copy and returns `settings` plus `evidence_root` to the
+assigned harness. Workers read those instructions and load the named skills;
+the panel does not launch a harness, fetch a repository or open the folder.
+Task folders map to Hermes' native workspace field when claimed. Evidence pins
+remain confined to the original research project. Submitted-run settings stay
+with the submission; older runs without them are explicitly labelled unrecorded.
+Agent defaults live in `.research-dbtl.json`; overrides and claimed context live
+on existing native Hermes cards. Existing roles, avatars and scientific gates
+are independent of these settings.
+
+The approved interaction is preserved in
+`sketches/research-dbtl-cycle-folding/index.html`. Production checks include
+`node tests/research-dbtl-settings-browser.cjs` (same browser environment overrides
+as the full workflow check below).
+
+The [bundled skill](plugins/research-dbtl/skills/research-dbtl/SKILL.md) documents
+creation, claims, heartbeats, handoffs and recovery. Task creation and worker
+submission run through the CLI; the panel is for human review. Exploration runs
+Design → Build → Learn. Independent Test requires an explicitly selected
+manuscript claim and a different agent from its evidence producer. Internal
+reports and figures do not need Test. Human acceptance records its scope; it does
+not imply that an independent validation passed.
+
+Project config contains identity, board, roles, agent execution defaults and optional agent pictures. Tasks, dependencies,
+claims and review receipts stay in Hermes Kanban; evidence stays in the research
+folder. Submissions pin relative file paths and SHA-256 hashes. Changed files or
+upstream submissions block approval and downstream handoff. Prefer immutable
+revision filenames. Evidence limit: 20 files, 256 MiB each; use checksum manifests
+for large datasets. Keep `.research-dbtl.json` and `.research-dbtl.lock` out of
+public repositories as appropriate for your project's privacy rules.
+
+MVP boundary: one machine, user-started sessions, explicit file ownership between
+workers, manual panel refresh. Codex can delegate its own bounded tasks; Claude
+and Hermes receive the same handoff in user-started sessions. No automatic
+cross-harness launcher, scheduler, MCP server or second task database is installed.
+These checks coordinate trusted agents; direct filesystem/native Hermes access
+can bypass them. After Hermes updates, rerun the native integration tests before
+using the plugin with real work.
+
+Optional browser integration proof uses an existing Playwright and Chromium
+installation (no dependency is installed by this repo):
+
+```bash
+node tests/research-dbtl-browser.cjs
+```
+
+It creates a disposable native board and synthetic project, checks the real
+review flow and saves screenshots to the temporary `research-dbtl-screenshots`
+directory. Override `PLAYWRIGHT_MODULE`, `DBTL_PYTHON`,
+`DBTL_CHROMIUM_EXECUTABLE` or `DBTL_SCREENSHOT_DIR` when your existing runtimes or
+output location differ. The standard Python suite includes the native workflow
+and installer regressions; the standard Node suite includes the approved sketch.
+
+The proposed agent-avatar interaction is a disposable preview at
+[`sketches/research-dbtl-avatars/index.html`](sketches/research-dbtl-avatars/index.html).
+It records the approved interaction with labelled synthetic data and resets on
+reload. The installed panel now implements that interaction with persistent
+project storage. Its optional sketch browser check is
+`node tests/research-dbtl-avatar-preview.cjs`, using the same Playwright runtime
+and screenshot environment overrides above.
+
+### Restore completed historical Builds
+
+When the user explicitly confirms that historical Build work is completed, use
+`dbtl.py --project PROJECT record-build-completion --task TASK_ID --actor codex
+--completed-on YYYY-MM-DD --note NOTE` (substitute the assigned coordinator).
+The card must be an unparented archival reconstruction in review with a pinned
+`historical-evidence-snapshot` manifest and a completed run.json for its cycle.
+The manifest lists source snapshots with path, SHA-256 and byte count; those
+indirect files are also checked on import and subsequent panel refreshes.
+Preserve limitations and failed attempts in the evidence and note.
+
+The native completion receipt moves its panel representation to Build/Completed
+while retaining the original reconstruction submission and event history. The
+receipt records the original completion date separately from the import time.
+It creates no approval or independent validation, and cannot be used as an
+approved parent to authorize new work. Ordinary done cards still read Approved.
+Do not use this command to close new work awaiting human review.
+
+### Restore completed historical Learn outputs
+
+Use `record-learn-completion --task TASK_ID --actor AGENT --completed-on DATE
+--build BUILD_TASK_ID --note NOTE` for a separate coordinator-owned archival
+reconstruction submission. The required historical-learning-snapshot manifest
+lists checksummed sources and identifies its nonempty learning_sources. Preserve
+existing interpretations, figures, reports and reporting dates; do not present
+proposed work as completed. The source Build must be a completed historical
+Build in the same cycle. Its submission ID is pinned, and changed Build or Learn
+evidence makes the Learn card stale.
+
+The panel shows Learn/Completed and an Open source Build link. Native history
+records completion separately from approval. This does not change current role
+assignments, authorize future work, create validation, or execute new analysis.
+The original Build remains in place.
