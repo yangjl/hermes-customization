@@ -160,7 +160,7 @@ does not mean the packaged app works. Say what each check *cannot* prove.
 
 ## 7. Patch status vs native Hermes
 
-Last verified 2026-09-14 against Hermes `14efb4608925`. Re-verify after any
+Last verified 2026-09-21 against Hermes `75b083e93991` (also `origin/main`). Re-verify after any
 Hermes update: from the Hermes checkout, `git apply --check <patch>` succeeding
 means the tree is unpatched and the patch is still needed; `git apply --check
 --reverse` succeeding means it is applied. When a feature lands natively,
@@ -172,6 +172,15 @@ reconciler runs. Once the patch is reapplied, `--check` fails because our own
 change is present, not because upstream shipped anything. Read pristine upstream
 from committed blobs instead (`git show origin/main:<path>`, `git ls-tree`), and
 check `origin/main` as well as `HEAD` so a pending update is not a surprise.
+
+The latest rebase preserves upstream's scheduler-heartbeat metadata
+(`5179b5177d`), sidebar keyboard-reorder tests (`5d59a43593`), and cron profile
+routing changes through `75b083e93991`. Native `display.show_reasoning` controls
+visibility, not the collapsed-by-default preference; its new store wiring is
+preserved. Upstream `5dbe99bb83` now ships the profile-switch StrictMode fix, so
+that hunk and its test were removed. The terminal-only patch remains an
+intentional alternative to the full Desktop patch, not an additional layer to
+apply twice.
 
 `patches/terminal-theme-fields.patch` — **still needed.**
 `_normalise_theme_definition` still strips `terminalBackground` /
@@ -197,7 +206,6 @@ section:
 | Profile avatar + nickname identity (`profile-identity.ts`, `profile-avatar.tsx`, rail, session rows, `global.d.ts`) | Absent — neither file exists upstream |
 | Sidebar-wide fleet roster mount (`useFleetRoster(true)` in `sidebar/index.tsx`) | Absent — roster refresh is still fleet-conditional |
 | Sidebar icon sizing tweak (`size-4` → `size-5`) | Absent |
-| Profile-switch StrictMode fix (`use-on-profile-switch.ts` + test) | Absent — first-effect ref bug still upstream |
 | Narrower sash grab band (`tree-split.tsx`) | Absent — still 8px |
 | Reasoning collapsed by default (`reasoning-disclosure.ts`) | Absent — default still `false` |
 | Terminal theme fields in `web_server_dashboard.py` (+ test) | Absent — duplicate of `terminal-theme-fields.patch` |
@@ -211,3 +219,4 @@ Removed from the patch because native Hermes covers the need:
 | `desktop_*` skin color overrides (`skin.ts`) | Native cross-surface skin SDK loads Light Lab; the yaml's `desktop_*` keys are ignored, surfaces derive from base colors |
 | Three-line composer min-height (`styles.css`) | Dropped by choice; native one-line composer grows as you type |
 | Folded live tool runs | Native `2e786d901b` keeps live details behind the same disclosure as settled history and preserves named skill summaries; old ticker-removal hunks dropped |
+| Profile-switch StrictMode fix | Native `5dbe99bb83` compares profile identity across effect replays; local source and test hunks dropped |

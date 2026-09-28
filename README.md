@@ -30,10 +30,11 @@ called done. Read it before adding a customization.
   Hermes versions that omit custom terminal colors from dashboard theme data.
 - `patches/desktop-research-workflow.patch` — portable Desktop source changes:
   five-project recent list, profile avatars and nicknames in the rail and
-  session rows, panel sizing, profile switching, and tests. The context meter,
-  cross-surface skin support, and folded live tool runs are native Hermes now
-  and no longer patched; the skin's `desktop_*` color overrides are ignored by
-  the native skin SDK. The three-line composer sizing was dropped as well.
+  session rows, panel sizing, and tests. The context meter, profile-switch
+  StrictMode fix, cross-surface skin support, and folded live tool runs are
+  native Hermes now and no longer patched; the skin's `desktop_*` color
+  overrides are ignored by the native skin SDK. The three-line composer sizing
+  was dropped as well.
 - `install.sh` — installs and activates the theme.
 - `install-desktop-app.sh` — packages, installs, pins, and opens a standalone
   macOS `Hermes.app`.
@@ -130,8 +131,8 @@ newly applied, restart `hermes dashboard` as well.
 `hermes update` autostashes local source changes, fast-forwards, and rebuilds
 the Desktop app from the clean tree. The customizations are a source patch, so
 every update silently ships a Hermes without them — the five-project fold,
-profile avatars, panel sizing, and profile switching all revert, and the
-stashed copy is easy to miss.
+profile avatars, and panel sizing all revert, and the stashed copy is easy to
+miss.
 
 `scripts/reapply-desktop-patch.sh` reconciles the tree back. It reapplies every
 patch in `patches/` with a three-way merge, rebuilds the app, and reinstalls it.
@@ -157,6 +158,17 @@ a facade plus `<stem>_<topic>.py` siblings, and `hermes_cli/web_server.py` alone
 shed 18k lines that way in Sep 2026. Grep for the patched function by name
 before deciding a hunk is obsolete, and see `AGENTS.md` §7 for the current home
 of each one.
+
+Latest compatibility audit: Hermes `aea6f7a66010` (2026-09-28). The Desktop
+overlay preserves project-session pagination, fleet error/sign-in state,
+session-row decoration and continuation slots, Simple-mode reasoning behavior,
+and the native primary-routed cron handoff. Avatar reads reuse the active gateway
+and one default-profile socket per at-rest source rather than spawning a backend
+per profile. Because `/api/profiles` currently omits `has_avatar`, missing avatar
+metadata is treated as probe-eligible; only an explicit `false` suppresses the
+request. Existing customizations still need the remaining hunks; the
+profile-switch StrictMode fix and folded live tool runs continue to use native
+Hermes.
 
 The script needs the gateway running to fire on schedule — `hermes cron status`
 reports `Gateway is not running` when it cannot, and the job silently never

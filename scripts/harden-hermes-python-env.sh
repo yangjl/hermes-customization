@@ -25,8 +25,26 @@ fi
 patch_wrapper() {
   [[ -f "$wrapper" ]] || return 0
   grep -q "__PYVENV_LAUNCHER__" "$wrapper" && return 0
-  # Insert alongside the existing unset lines the wrapper already has.
-  sed -i '' 's/^unset PYTHONHOME$/unset PYTHONHOME\nunset __PYVENV_LAUNCHER__/' "$wrapper"
+  # Installers now emit either a full wrapper with unset lines or a thin
+  # `exec <checkout>/.hermes/bin/hermes` shim. Insert before the first exec when
+  # there is no PYTHONHOME line to anchor to.
+  python3 - "$wrapper" <<'EOF'
+import sys
+
+path = sys.argv[1]
+with open(path) as f:
+    lines = f.readlines()
+
+anchor = next((i + 1 for i, line in enumerate(lines) if line.rstrip("\n") == "unset PYTHONHOME"), None)
+if anchor is None:
+    anchor = next((i for i, line in enumerate(lines) if line.startswith("exec ")), None)
+if anchor is None:
+    sys.exit(f"unexpected wrapper shape in {path}; not patching")
+
+lines.insert(anchor, "unset __PYVENV_LAUNCHER__\n")
+with open(path, "w") as f:
+    f.writelines(lines)
+EOF
   grep -q "__PYVENV_LAUNCHER__" "$wrapper" || {
     echo "harden-hermes-python-env: failed to patch $wrapper" >&2
     return 1

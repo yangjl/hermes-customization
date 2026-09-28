@@ -1,5 +1,5 @@
 diff --git a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
-index f0bdc16d0d..3acc826c73 100644
+index 10de23cfa64..48ad31ed963 100644
 --- a/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
 +++ b/apps/desktop/src/app/chat/sidebar/fleet-rail.ts
 @@ -1,4 +1,9 @@
@@ -11,9 +11,14 @@ index f0bdc16d0d..3acc826c73 100644
 +  RosterProfileMetadata
 +} from '@/global'
  import { sortConnectionsForDisplay } from '@/lib/connection-display'
+ import { sortByProfileOrder } from '@/lib/profile-order'
  
- // Pure grouping for the fleet profile rail: which gateways sit "at rest"
-@@ -14,6 +19,9 @@ export interface FleetAgent {
+@@ -12,9 +17,14 @@ export interface FleetAgent {
+   connectionLabel: string
+   /** Profile name as the owning gateway knows it. */
+   profile: string
++  /** Backend profile when the registry route aliases the displayed name. */
++  targetProfile?: string
    /** Pre-computed @name-device mention handle from the roster. */
    handle: string
    isDefault: boolean
@@ -23,16 +28,22 @@ index f0bdc16d0d..3acc826c73 100644
  }
  
  export interface FleetGroup {
-@@ -71,20 +79,21 @@ export function buildRestGroups({
+@@ -74,19 +84,28 @@ export function buildRestGroups({
        continue
      }
  
 -    const toAgent = (profile: string, handle?: string): FleetAgent => ({
-+    const toAgent = (profile: string, handle?: string, metadata?: RosterProfileMetadata): FleetAgent => ({
++    const toAgent = (
++      profile: string,
++      handle?: string,
++      metadata?: RosterProfileMetadata,
++      targetProfile?: string
++    ): FleetAgent => ({
        connectionId: connection.id,
        connectionKind: connection.kind,
        connectionLabel: connection.label,
        profile,
++      ...(targetProfile ? { targetProfile } : {}),
        handle: handle ?? profile,
 -      isDefault: profile === DEFAULT_PROFILE
 +      isDefault: profile === DEFAULT_PROFILE,
@@ -41,35 +52,41 @@ index f0bdc16d0d..3acc826c73 100644
  
      const defaultRow = rows.find(row => row.profile === DEFAULT_PROFILE)
  
-     const named = rows
-       .filter(row => row.profile !== DEFAULT_PROFILE)
--      .map(row => toAgent(row.profile, row.handle))
-+      .map(row => toAgent(row.profile, row.handle, row.profileMetadata))
-       .sort((left, right) => collator.compare(left.profile, right.profile))
- 
-     groups.push({
-@@ -92,7 +101,7 @@ export function buildRestGroups({
-       kind: connection.kind,
-       label: connection.label,
+     const named = sortByProfileOrder(
+-      rows.filter(row => row.profile !== DEFAULT_PROFILE).map(row => toAgent(row.profile, row.handle)),
++      rows
++        .filter(row => row.profile !== DEFAULT_PROFILE)
++        .map(row => toAgent(row.profile, row.handle, row.profileMetadata, row.targetProfile)),
+       order,
+       agent => agent.profile
+     )
+@@ -98,7 +117,12 @@ export function buildRestGroups({
        reachable: source?.reachable ?? true,
+       ...(source?.error && source.error !== 'connect-on-demand' ? { error: source.error } : {}),
+       ...(source?.needsSignIn ? { needsSignIn: true } : {}),
 -      defaultAgent: toAgent(DEFAULT_PROFILE, defaultRow?.handle),
-+      defaultAgent: toAgent(DEFAULT_PROFILE, defaultRow?.handle, defaultRow?.profileMetadata),
++      defaultAgent: toAgent(
++        DEFAULT_PROFILE,
++        defaultRow?.handle,
++        defaultRow?.profileMetadata,
++        defaultRow?.targetProfile
++      ),
        named
      })
    }
 diff --git a/apps/desktop/src/app/chat/sidebar/index.tsx b/apps/desktop/src/app/chat/sidebar/index.tsx
-index f5b7ed2cb6..cf15c1eaab 100644
+index cca843d5bf5..0c7edf55da3 100644
 --- a/apps/desktop/src/app/chat/sidebar/index.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/index.tsx
-@@ -156,6 +156,7 @@ import { ProjectDialog } from './project-dialog'
- import { resolveLiveProjectFilter } from './project-filter'
+@@ -161,6 +161,7 @@ import { ProjectDialog } from './project-dialog'
+ import { filterToSessionBearingProjects, resolveLiveProjectFilter } from './project-filter'
  import {
    excludeProjectSessions,
 +  foldProjectOverview,
    orderProjectsByIds,
    overlayLiveLanes,
    overlayLivePreviews,
-@@ -183,6 +184,7 @@ import { buildSessionByAnyId, resolvePinnedSessions } from './session-index'
+@@ -190,6 +191,7 @@ import { buildSessionByAnyId, resolvePinnedSessions } from './session-index'
  import { SidebarSessionsSection, VIRTUALIZE_THRESHOLD } from './sessions-section'
  import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
  import { useEnteredProjectSessions } from './use-entered-project-sessions'
@@ -77,7 +94,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
  
  // Non-session groups (messaging platforms) stay compact: show a few rows up
  // front, reveal more in larger steps on demand. Keeps a busy platform from
-@@ -338,6 +340,14 @@ export function ChatSidebar({
+@@ -409,6 +411,14 @@ export function ChatSidebar({
    const { t } = useI18n()
    const s = t.sidebar
    const { pathname } = useLocation()
@@ -92,7 +109,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
    // Contributed nav rows (plugins pairing a page with a sidebar entry) render
    // below the built-ins with the same chrome; active = at their route.
    const navContributions = useContributions(SIDEBAR_NAV_AREA)
-@@ -462,6 +472,7 @@ export function ChatSidebar({
+@@ -549,6 +559,7 @@ export function ChatSidebar({
    const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
    const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
    const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
@@ -100,7 +117,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
    const messagingOpenIds = useStore($sidebarMessagingOpenIds)
    // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
    const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
-@@ -1140,6 +1151,11 @@ export function ChatSidebar({
+@@ -1218,6 +1229,11 @@ export function ChatSidebar({
    // The project overview (drill-in list) vs. the entered project's content.
    const projectOverview = projectsActive && !inProject ? agentProjectTree : undefined
  
@@ -112,7 +129,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
    // Preview rows come from the backend tree (each project carries its
    // most-recent sessions), overlaid with live $sessions so a just-created
    // session shows under its project instantly (and with its working arc),
-@@ -1443,7 +1459,14 @@ export function ChatSidebar({
+@@ -1566,7 +1582,14 @@ export function ChatSidebar({
  
    // Persist the new project overview order (drag-to-reorder); orderByIds applies
    // it over the default sort, so stale/new ids reconcile on the next render.
@@ -128,7 +145,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
  
    // Sortable rows carry live session ids; the pinned store is keyed by durable
    // (lineage-root) ids, so translate before persisting the new order.
-@@ -1548,7 +1571,7 @@ export function ChatSidebar({
+@@ -1675,7 +1698,7 @@ export function ChatSidebar({
                      }
                      type="button"
                    >
@@ -137,7 +154,7 @@ index f5b7ed2cb6..cf15c1eaab 100644
                      {/* Shrink-to-fit, not flex-1: the label carries the row's
                          `data-tour` handle, and anything anchored to it should
                          land at the end of the WORD, not out at the sidebar's
-@@ -1714,7 +1737,19 @@ export function ChatSidebar({
+@@ -1850,7 +1873,19 @@ export function ChatSidebar({
                    )
                  }
                  footer={
@@ -158,17 +175,17 @@ index f5b7ed2cb6..cf15c1eaab 100644
                    // themselves. Profile groups don't: this one footer fetches the
                    // next page, which grows every profile at once.
                    !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
-@@ -1854,7 +1889,7 @@ export function ChatSidebar({
+@@ -1990,7 +2025,7 @@ export function ChatSidebar({
                    inProject ? <ProjectBackRow label={s.projects.back} onClick={exitProjectScope} /> : undefined
                  }
                  projectContent={inProject ? enteredProjectContent : undefined}
 -                projectOverview={projectOverview}
 +                projectOverview={projectOverview ? foldedProjectOverview.projects : undefined}
+                 projectOverviewHidden={overviewHidden}
                  projectOverviewPreviews={overviewPreviews}
                  projectRepoWorktrees={inProject ? scopedRepoWorktrees : undefined}
-                 projectsLoading={worktreeGroupingActive ? projectTreeLoading : false}
 diff --git a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
-index a8d80ffa30..8bacea5ec4 100644
+index 5eff2d6a3ee..1742ad1f986 100644
 --- a/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/profile-rail-fleet.test.tsx
 @@ -1,8 +1,9 @@
@@ -182,36 +199,38 @@ index a8d80ffa30..8bacea5ec4 100644
  
  import { ProfileRail } from './profile-switcher'
  
-@@ -16,6 +17,13 @@ const navigate = vi.fn()
- const selectConnection = vi.fn()
+@@ -17,6 +18,19 @@ const selectConnection = vi.fn()
  const selectProfile = vi.fn()
  const getAgentRoster = vi.fn()
+ const openWindow = vi.fn()
++const activeGatewayRequest = vi.fn()
 +const requestGatewayForAgent = vi.fn()
 +
-+// The avatar tile (ProfileAvatar) fetches `profiles.get_asset` through the
-+// gateway router; stub it so no square ever dials a real socket from jsdom.
++// Active-source avatars reuse the already-open gateway; at-rest sources share
++// one default-profile socket per connection.
 +vi.mock('@/store/gateway', () => ({
++  $gateway: atom({ request: (...args: unknown[]) => activeGatewayRequest(...args) }),
++  // projects.ts subscribes during this test's import graph; it needs the export
++  // even though this rail fixture has no active project gateway.
++  activeGateway: () => null,
++  activeGatewayConnectionId: () => activeConnectionId.get(),
 +  requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
 +}))
  
  vi.mock('react-router', () => ({
    useNavigate: () => navigate
-@@ -154,7 +162,8 @@ const roster: DesktopAgentRoster = {
-       connectionKind: 'remote',
-       connectionLabel: 'Pandora',
-       profile: 'scout',
--      handle: 'scout'
-+      handle: 'scout',
-+      profileMetadata: { has_avatar: true }
-     },
-     {
-       connectionId: 'local',
-@@ -163,7 +172,31 @@ const roster: DesktopAgentRoster = {
+@@ -187,12 +201,37 @@ const roster: DesktopAgentRoster = {
        profile: 'default',
        handle: 'hermes'
      },
--    { connectionId: 'local', connectionKind: 'local', connectionLabel: 'This device', profile: 'omer', handle: 'omer' }
 +    { connectionId: 'local', connectionKind: 'local', connectionLabel: 'This device', profile: 'omer', handle: 'omer' },
+     {
+       connectionId: 'local',
+       connectionKind: 'local',
+       connectionLabel: 'This device',
+       profile: 'builder',
+       handle: 'builder'
++    },
 +    {
 +      connectionId: 'local',
 +      connectionKind: 'local',
@@ -235,27 +254,28 @@ index a8d80ffa30..8bacea5ec4 100644
 +      profile: 'scout',
 +      handle: 'scout-local',
 +      profileMetadata: { display_name: 'Local Scout', has_avatar: true }
-+    }
+     }
    ],
    sources: [
-     { connectionId: 'pandora', kind: 'remote', label: 'Pandora', reachable: true },
-@@ -197,12 +230,14 @@ async function renderFleet() {
- beforeEach(() => {
-   getAgentRoster.mockResolvedValue(roster)
+@@ -232,6 +271,8 @@ beforeEach(() => {
    selectConnection.mockResolvedValue(undefined)
+   openWindow.mockResolvedValue({ ok: true })
+   ;(window as { hermesDesktop?: unknown }).hermesDesktop = { getAgentRoster, openWindow, probeLocalBackend }
++  activeGatewayRequest.mockResolvedValue({ found: false })
 +  requestGatewayForAgent.mockResolvedValue({ found: false })
-   ;(window as { hermesDesktop?: unknown }).hermesDesktop = { getAgentRoster }
  })
  
  afterEach(() => {
-   cleanup()
+@@ -239,6 +280,7 @@ afterEach(() => {
+   $profileOrder.set([])
    vi.clearAllMocks()
+   vi.restoreAllMocks()
 +  queryClient.clear()
    _resetFleetRosterForTests()
    hasMultipleConnections.set(false)
    connectionsRegistry.set(null)
-@@ -341,6 +376,102 @@ describe('ProfileRail fleet mode', () => {
-     expect(screen.getByRole('button', { name: 'omer' })).toBeTruthy()
+@@ -630,6 +672,96 @@ describe('ProfileRail fleet mode', () => {
+     expect(screen.getByRole('button', { name: 'builder' })).toBeTruthy()
    })
  
 +  it('labels at-rest squares with their nickname while keeping the technical name', async () => {
@@ -269,36 +289,30 @@ index a8d80ffa30..8bacea5ec4 100644
 +    expect(screen.getByRole('button', { name: 'omer · This device' })).toBeTruthy()
 +  })
 +
-+  it('fetches each avatar from its exact owning source, never by name alone', async () => {
++  it('reuses the active gateway and one default-profile socket per at-rest source', async () => {
 +    armFleet()
 +    await renderFleet()
 +
 +    await waitFor(() => {
-+      // Duplicate "scout" on two gateways: one fetch per source, keyed by the
-+      // owning connection — the active square through the active connection.
-+      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'scout', 'profiles.get_asset', {
++      expect(activeGatewayRequest).toHaveBeenCalledWith('profiles.get_asset', {
 +        asset: 'avatar',
 +        name: 'scout'
 +      })
-+      expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
-+        asset: 'avatar',
-+        name: 'scout'
-+      })
-+      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'sage', 'profiles.get_asset', {
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
 +        asset: 'avatar',
 +        name: 'sage'
 +      })
++      expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
++        asset: 'avatar',
++        name: 'scout'
++      })
 +    })
 +
-+    // An explicit has_avatar=false is the only thing that skips the probe.
-+    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'blank', 'profiles.get_asset', {
++    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
 +      asset: 'avatar',
 +      name: 'blank'
 +    })
-+
-+    // A metadata-free profile is "unknown", not "no avatar": REST
-+    // /api/profiles omits has_avatar, so these must still be probed.
-+    expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'omer', 'profiles.get_asset', {
++    expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
 +      asset: 'avatar',
 +      name: 'omer'
 +    })
@@ -308,7 +322,7 @@ index a8d80ffa30..8bacea5ec4 100644
 +    armFleet()
 +    await renderFleet()
 +
-+    // The at-rest local scout carries ITS nickname; the active pandora scout
++    // The at-rest local scout carries ITS nickname; the active gateway-a scout
 +    // keeps its own plain label. Neither leaks into the other.
 +    expect(screen.getByRole('button', { name: 'Local Scout · This device (scout)' })).toBeTruthy()
 +    expect(screen.getByRole('button', { name: 'scout' })).toBeTruthy()
@@ -358,21 +372,22 @@ index a8d80ffa30..8bacea5ec4 100644
      armFleet()
      profiles.set([
 diff --git a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
-index f9c53042c6..cc4e76fb9b 100644
+index fcba8056790..cf9c9faa115 100644
 --- a/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/profile-switcher.tsx
 @@ -41,6 +41,7 @@ import {
-   DropdownMenuTrigger
  } from '@/components/ui/dropdown-menu'
+ import { edgeMask, scrollEdges } from '@/components/ui/fade-scroll'
  import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 +import { ProfileAvatar } from '@/components/ui/profile-avatar'
  import { ProfileGlyph } from '@/components/ui/profile-glyph'
  import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
  import type { DesktopRegistryConnection } from '@/global'
-@@ -50,6 +51,11 @@ import { sortConnectionsForDisplay } from '@/lib/connection-display'
+@@ -51,7 +52,11 @@ import { sortConnectionsForDisplay } from '@/lib/connection-display'
  import { triggerHaptic } from '@/lib/haptics'
  import { Loader2 } from '@/lib/icons'
  import { PROFILE_SWATCHES, profileColorSoft, resolveProfileColor } from '@/lib/profile-color'
+-import { profileShortLabel } from '@/lib/profile-short-label'
 +import {
 +  type ProfileIdentity,
 +  profileIdentityFromMetadata,
@@ -381,10 +396,10 @@ index f9c53042c6..cc4e76fb9b 100644
  import {
    REORDER_DRAG_TRANSITION_CSS,
    REORDER_RAIL_TRANSITION,
-@@ -369,6 +375,12 @@ export function ProfileRail() {
-                 <ProfileSquare
+@@ -487,6 +492,12 @@ export function ProfileRail() {
                    active={!isAll && normalizeProfileKey(profile.name) === activeKey}
                    color={resolveProfileColor(profile.name, colors)}
+                   connectionId={namedProfileConnectionId}
 +                  identity={resolveProfileIdentity({
 +                    connectionId: activeConnectionId,
 +                    fallbackLabel: profileLabel(profile),
@@ -393,8 +408,8 @@ index f9c53042c6..cc4e76fb9b 100644
 +                  })}
                    key={profile.name}
                    label={profileLabel(profile)}
-                   // The legacy per-profile remote override predates the
-@@ -1037,7 +1049,21 @@ function RestSquare({
+                   name={profile.name}
+@@ -1265,7 +1276,22 @@ function RestSquare({
    const p = t.profiles
    const hue = color ?? 'var(--ui-text-quaternary)'
    const [pickerOpen, setPickerOpen] = useState(false)
@@ -403,6 +418,7 @@ index f9c53042c6..cc4e76fb9b 100644
 +  // The square's identity comes from its own roster row, so duplicate names
 +  // on other gateways can never leak a nickname or avatar into this one.
 +  const identity = profileIdentityFromMetadata({
++    assetProfile: agent.targetProfile,
 +    connectionId: agent.connectionId,
 +    metadata: agent.metadata,
 +    profile: agent.profile
@@ -415,40 +431,40 @@ index f9c53042c6..cc4e76fb9b 100644
 +      ? p.fleet.onGateway(agent.profile, agent.connectionLabel)
 +      : `${p.fleet.onGateway(identity.nickname, agent.connectionLabel)} (${agent.profile})`
  
-   const pickColor = (next: null | string) => {
-     onRecolor(next)
-@@ -1067,7 +1093,11 @@ function RestSquare({
+   // An at-rest gateway's square always carries its profiles' rollup — it is
+   // never the active square, and its sessions are not on screen anywhere
+@@ -1301,7 +1327,11 @@ function RestSquare({
                      {pending ? (
                        <Loader2 aria-hidden="true" className="size-3 animate-spin" />
                      ) : (
--                      agent.profile.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'
+-                      profileShortLabel(agent.profile)
 +                      <ProfileAvatar
 +                        className="absolute inset-0 text-[0.5625rem]"
 +                        color={color}
 +                        identity={identity}
 +                      />
                      )}
-                   </button>
-                 </TooltipTrigger>
-@@ -1132,6 +1162,9 @@ function RestSquare({
- interface ProfileSquareProps {
+                     {summary && (
+                       <span className="absolute -bottom-0.5 -right-0.5">
+@@ -1373,6 +1403,9 @@ interface ProfileSquareProps {
    active: boolean
    color: null | string
+   connectionId: null | string
 +  /** Resolved identity for this exact (active connection, profile) — drives
 +   *  the avatar tile and its fallback initial. */
 +  identity: ProfileIdentity
    label: string
+   name: string
    onSelect: () => void
-   onRecolor: (color: null | string) => void
-@@ -1160,6 +1193,7 @@ const LONG_PRESS_MS = 450
- function ProfileSquare({
+@@ -1403,6 +1436,7 @@ function ProfileSquare({
    active,
    color,
+   connectionId,
 +  identity,
    label,
+   name,
    onConnectRemote,
-   onDelete,
-@@ -1201,6 +1235,9 @@ function ProfileSquare({
+@@ -1451,6 +1485,9 @@ function ProfileSquare({
    useEffect(() => clearPress, [])
  
    const base = CSS.Transform.toString(transform)
@@ -458,7 +474,7 @@ index f9c53042c6..cc4e76fb9b 100644
    const ring = active ? `inset 0 0 0 1.5px ${hue}` : ''
    const lift = isDragging ? '0 6px 16px -4px rgb(0 0 0 / 0.4)' : ''
  
-@@ -1227,7 +1264,7 @@ function ProfileSquare({
+@@ -1477,7 +1514,7 @@ function ProfileSquare({
                      ref={setNodeRef}
                      style={{
                        backgroundColor: profileColorSoft(hue, active ? 30 : 22),
@@ -467,11 +483,11 @@ index f9c53042c6..cc4e76fb9b 100644
                        color: color ?? undefined,
                        // Glide the dragged square between snapped cells with a little
                        // overshoot (no scale — the overflow-x strip would clip it).
-@@ -1274,7 +1311,20 @@ function ProfileSquare({
-                     }}
+@@ -1529,7 +1566,20 @@ function ProfileSquare({
+                     onPointerMove={notePointerMove}
                      onPointerUp={clearPress}
                    >
--                    {label.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
+-                    {profileShortLabel(label)}
 +                    <ProfileAvatar
 +                      className="absolute inset-0 text-[0.5625rem]"
 +                      color={color}
@@ -490,7 +506,7 @@ index f9c53042c6..cc4e76fb9b 100644
                          overridden profile's square, so which profiles leave this
                          machine is visible at a glance (#91349). */}
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/index.ts b/apps/desktop/src/app/chat/sidebar/projects/index.ts
-index 501ba79cd9..f06a33c86b 100644
+index d4fb9dac7bd..343fd59607c 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/index.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/index.ts
 @@ -1,7 +1,9 @@
@@ -504,7 +520,7 @@ index 501ba79cd9..f06a33c86b 100644
    projectTreeCwd,
    sortProjectsForOverview,
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
-index 8035686f38..baf3fe8bc7 100644
+index 8035686f381..baf3fe8bc7b 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.test.ts
 @@ -1,6 +1,6 @@
@@ -530,12 +546,12 @@ index 8035686f38..baf3fe8bc7 100644
 +  })
 +})
 diff --git a/apps/desktop/src/app/chat/sidebar/projects/model.ts b/apps/desktop/src/app/chat/sidebar/projects/model.ts
-index 0836a089b3..b789f44128 100644
+index 5c68ec0afb9..80da8ebbe7c 100644
 --- a/apps/desktop/src/app/chat/sidebar/projects/model.ts
 +++ b/apps/desktop/src/app/chat/sidebar/projects/model.ts
-@@ -16,6 +16,9 @@ export const SIDEBAR_GROUP_PAGE = 5
- // Recent sessions previewed under each project in the overview.
- export const PROJECT_PREVIEW_COUNT = 3
+@@ -35,6 +35,9 @@ export function useRevealedRows<T>(rows: T[], first: number): { more: number; sh
+   }
+ }
  
 +// Recent projects shown before the overview folds older rows.
 +export const PROJECT_OVERVIEW_COUNT = 5
@@ -543,7 +559,7 @@ index 0836a089b3..b789f44128 100644
  // Max concurrent `git worktree list` probes when a project spans many repos.
  const WORKTREE_PROBE_CONCURRENCY = 4
  
-@@ -117,6 +120,20 @@ export function orderProjectsByIds(projects: SidebarProjectTree[], orderIds: str
+@@ -146,6 +149,20 @@ export function orderProjectsByIds(projects: SidebarProjectTree[], orderIds: str
    ])
  }
  
@@ -565,21 +581,26 @@ index 0836a089b3..b789f44128 100644
  // linked worktrees still appear even when their sessions aren't in the recents
  // payload currently loaded in memory.
 diff --git a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
-index 932a8070c9..91097b8b39 100644
+index 501b0de8d40..f5758165d6f 100644
 --- a/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/session-row.test.tsx
-@@ -1,13 +1,17 @@
+@@ -1,17 +1,21 @@
+ import { KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable'
 -import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 +import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
  import { atom } from 'nanostores'
  import type * as React from 'react'
- import { afterEach, describe, expect, it, vi } from 'vitest'
+-import { afterEach, describe, expect, it, vi } from 'vitest'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  
+ import { registry } from '@/contrib/registry'
 +import type { DesktopAgentRoster } from '@/global'
  import type { SessionInfo } from '@/hermes'
  import { createClientSessionState } from '@/lib/chat-runtime'
  import type * as ChatRuntime from '@/lib/chat-runtime'
 +import { queryClient } from '@/lib/query-client'
+ import { SESSION_ROW_AREAS, type SessionRowSlotProps } from '@/lib/session-row-slots'
  import type * as Time from '@/lib/time'
  import type * as ComposerStatusStore from '@/store/composer-status'
 +import { $fleetRoster } from '@/store/fleet-roster'
@@ -587,31 +608,43 @@ index 932a8070c9..91097b8b39 100644
  import type * as SessionStore from '@/store/session'
  import { clearAllSessionStates, publishSessionState } from '@/store/session-states'
  import type * as SessionStatesStore from '@/store/session-states'
-@@ -15,7 +19,22 @@ import type * as WindowsStore from '@/store/windows'
- 
+@@ -20,7 +24,34 @@ import type * as WindowsStore from '@/store/windows'
+ import { ReorderableList, useSortableBindings } from './reorderable-list'
  import { SidebarSessionRow } from './session-row'
  
 -afterEach(cleanup)
++const activeGatewayRequest = vi.fn()
 +const requestGatewayForAgent = vi.fn()
++let activeAvatarConnectionId: null | string = null
 +
-+// Only the avatar RPC path is stubbed; the rest of the gateway store stays
-+// genuine for the same wholesale-mock reasons documented below.
 +vi.mock('@/store/gateway', async importOriginal => {
 +  const actual = await importOriginal<typeof GatewayStore>()
 +
-+  return { ...actual, requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args) }
++  return {
++    ...actual,
++    $gateway: atom({ request: (...args: unknown[]) => activeGatewayRequest(...args) }),
++    activeGatewayConnectionId: () => activeAvatarConnectionId,
++    requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
++  }
++})
++
++beforeEach(() => {
++  activeGatewayRequest.mockResolvedValue({ found: false })
++  requestGatewayForAgent.mockResolvedValue({ found: false })
 +})
 +
 +afterEach(() => {
 +  cleanup()
 +  $fleetRoster.set(null)
 +  queryClient.clear()
++  activeGatewayRequest.mockReset()
 +  requestGatewayForAgent.mockReset()
++  activeAvatarConnectionId = null
 +})
  
  vi.mock('@/i18n', () => ({
    useI18n: () => ({
-@@ -411,6 +430,145 @@ describe('SidebarSessionRow', () => {
+@@ -290,6 +321,151 @@ describe('SidebarSessionRow', () => {
    })
  })
  
@@ -650,9 +683,10 @@ index 932a8070c9..91097b8b39 100644
 +
 +  const avatarTile = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-slot="profile-avatar"]')
 +
-+  it('renders the owning profile avatar and nickname from the exact connection and profile', async () => {
++  it('renders the owning profile avatar and nickname from the active source', async () => {
 +    $fleetRoster.set(rosterFixture)
-+    requestGatewayForAgent.mockResolvedValue({ found: true, data: 'data:image/png;base64,QUJD' })
++    activeAvatarConnectionId = 'pandora'
++    activeGatewayRequest.mockResolvedValue({ found: true, data: 'data:image/png;base64,QUJD' })
 +
 +    const { container } = renderRow(
 +      makeSession({ connection_id: 'pandora', profile: 'scout', title: 'Owned session' })
@@ -661,11 +695,12 @@ index 932a8070c9..91097b8b39 100644
 +    expect(avatarTile(container)?.getAttribute('title')).toBe('Pandora Scout')
 +    expect(screen.getByText('Pandora Scout')).toBeTruthy()
 +    await waitFor(() =>
-+      expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
++      expect(activeGatewayRequest).toHaveBeenCalledWith('profiles.get_asset', {
 +        asset: 'avatar',
 +        name: 'scout'
 +      })
 +    )
++    expect(requestGatewayForAgent).not.toHaveBeenCalled()
 +    await waitFor(() =>
 +      expect(avatarTile(container)?.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,QUJD')
 +    )
@@ -698,28 +733,31 @@ index 932a8070c9..91097b8b39 100644
 +      </>
 +    )
 +
-+    const titles = [...container.querySelectorAll('[data-slot="profile-avatar"]')].map(t => t.getAttribute('title'))
++    const titles = [...container.querySelectorAll('[data-slot="profile-avatar"]')].map(tile =>
++      tile.getAttribute('title')
++    )
 +
 +    expect(titles).toContain('Pandora Scout')
 +    expect(titles).toContain('Local Scout')
-+    // Only Pandora's scout reports an avatar asset; local scout must not
-+    // inherit it through the shared name.
-+    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'scout', 'profiles.get_asset', {
++    expect(requestGatewayForAgent).not.toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
 +      asset: 'avatar',
 +      name: 'scout'
 +    })
 +  })
 +
-+  it('falls back to the profile label and initial when metadata is missing', async () => {
++  it('falls back to the profile label and initial when metadata is missing', () => {
 +    $fleetRoster.set(rosterFixture)
 +
 +    const { container } = renderRow(makeSession({ connection_id: 'local', profile: 'omer', title: 'Old gateway' }))
-+
 +    const tile = avatarTile(container)
 +
 +    expect(tile?.getAttribute('title')).toBe('omer')
 +    expect(tile?.textContent).toBe('o')
 +    expect(tile?.querySelector('img')).toBeNull()
++    expect(requestGatewayForAgent).toHaveBeenCalledWith('local', 'default', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'omer'
++    })
 +  })
 +
 +  it('keeps local default sessions rendering without identity chrome', () => {
@@ -727,6 +765,7 @@ index 932a8070c9..91097b8b39 100644
 +
 +    expect(screen.getByText('Plain default session')).toBeTruthy()
 +    expect(avatarTile(container)).toBeNull()
++    expect(activeGatewayRequest).not.toHaveBeenCalled()
 +    expect(requestGatewayForAgent).not.toHaveBeenCalled()
 +  })
 +
@@ -748,17 +787,17 @@ index 932a8070c9..91097b8b39 100644
 +    expect(container.querySelector('.arc-row')).toBeTruthy()
 +    expect(screen.getByRole('button', { name: 'Session actions' })).toBeTruthy()
 +    expect(screen.getByText('5m').tagName).toBe('TIME')
-+    expect(handoffAvatar(container)).toBeTruthy()
++    expect([...container.querySelectorAll('svg title')].some(title => title.textContent === 'Telegram')).toBe(true)
 +
 +    clearAllSessionStates()
 +  })
 +})
 +
- describe('Inbox-style session card', () => {
-   it('gives truncated card lines room for glyph ink instead of clipping them', () => {
-     renderRow(
+ // Regression for #83617: the row shell once spread the FULL dnd-kit handle, so
+ // Space on a focused control inside the row (the ⋯ button that opens Rename)
+ // reached the KeyboardSensor's activator — a drag armed, and the sensor then
 diff --git a/apps/desktop/src/app/chat/sidebar/session-row.tsx b/apps/desktop/src/app/chat/sidebar/session-row.tsx
-index cfe2076fb2..6491ee1846 100644
+index df0f839e848..49992ecd7f4 100644
 --- a/apps/desktop/src/app/chat/sidebar/session-row.tsx
 +++ b/apps/desktop/src/app/chat/sidebar/session-row.tsx
 @@ -11,6 +11,7 @@ import { openSession } from '@/app/open-session'
@@ -769,13 +808,14 @@ index cfe2076fb2..6491ee1846 100644
  import { OverflowTip, Tip } from '@/components/ui/tooltip'
  import type { SessionInfo } from '@/hermes'
  import { type Translations, useI18n } from '@/i18n'
-@@ -19,13 +20,16 @@ import { pathLeaf } from '@/lib/display-path'
+@@ -19,14 +20,17 @@ import { pathLeaf } from '@/lib/display-path'
  import { triggerHaptic } from '@/lib/haptics'
  import { middleClickHandlers } from '@/lib/middle-click'
  import { displayModelName } from '@/lib/model-status-label'
 +import { resolveProfileColor } from '@/lib/profile-color'
 +import { resolveProfileIdentity } from '@/lib/profile-identity'
  import { sessionProjectLabel } from '@/lib/session-project-label'
+ import { SESSION_ROW_AREAS } from '@/lib/session-row-slots'
  import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
  import { coarseElapsed } from '@/lib/time'
  import { useStoreSelector } from '@/lib/use-session-slice'
@@ -786,8 +826,8 @@ index cfe2076fb2..6491ee1846 100644
 +import { $profileColors, normalizeProfileKey } from '@/store/profile'
  import { $projects } from '@/store/projects'
  import { $pullRequestsByBranch, sessionPrKey } from '@/store/pull-requests'
- import { $sessionDotStateById, hasLiveTurn, showsRunningArc } from '@/store/session-dot-state'
-@@ -169,6 +173,29 @@ function SidebarSessionRowImpl({
+ import { sessionPinId } from '@/store/session'
+@@ -173,6 +177,29 @@ function SidebarSessionRowImpl({
    // The default profile has no mark worth spending a row slot on — a chip on
    // every row that says "the normal one" is noise. Named profiles only.
    const hasProfileTag = normalizeProfileKey(session.profile) !== 'default'
@@ -817,7 +857,7 @@ index cfe2076fb2..6491ee1846 100644
    const pinnedProfile = hasProfileTag && rowMeta.includes('profile')
    // The branch's PR, if the row was asked to show one. A selector, not a plain
    // useStore: a repo's PRs land as a single map write, and only the rows on
-@@ -476,6 +503,19 @@ function SidebarSessionRowImpl({
+@@ -503,6 +530,19 @@ function SidebarSessionRowImpl({
                </SidebarRowLead>
              )
  
@@ -837,15 +877,15 @@ index cfe2076fb2..6491ee1846 100644
              const handoffBadge =
                handoffSource && handoffLabel ? (
                  <Tip label={r.handoffOrigin(handoffLabel)}>
-@@ -491,6 +531,7 @@ function SidebarSessionRowImpl({
-               return (
+@@ -536,6 +576,7 @@ function SidebarSessionRowImpl({
                  <>
                    {leadNode}
+                   <SessionRowSlot area={SESSION_ROW_AREAS.leading} sessionId={sessionPinId(session)} />
 +                  {ownerAvatar}
                    {handoffBadge}
+                   {continuationBadge}
                    <span className="min-w-0 flex-1 self-center">
-                     <OverflowTip label={title}>
-@@ -502,6 +543,16 @@ function SidebarSessionRowImpl({
+@@ -548,6 +589,16 @@ function SidebarSessionRowImpl({
                          <span className="hover-marquee-inner">{title}</span>
                        </SidebarRowLabel>
                      </OverflowTip>
@@ -862,15 +902,15 @@ index cfe2076fb2..6491ee1846 100644
                      {/* Session-list density (#68119): comfortable adds one
                          deterministic metadata line; detailed adds the initial
                          request preview. Compact keeps today's one-line row. */}
-@@ -539,6 +590,7 @@ function SidebarSessionRowImpl({
-                     entire width — nothing truncates against the kebab. */}
+@@ -587,6 +638,7 @@ function SidebarSessionRowImpl({
                  <div className="flex min-w-0 items-center gap-1.5">
                    {leadNode}
+                   <SessionRowSlot area={SESSION_ROW_AREAS.leading} sessionId={sessionPinId(session)} />
 +                  {ownerAvatar}
                    <span
                      className={cn(
                        'min-w-0 flex-1 truncate text-[0.6875rem] text-(--ui-text-tertiary)',
-@@ -565,6 +617,16 @@ function SidebarSessionRowImpl({
+@@ -615,6 +667,16 @@ function SidebarSessionRowImpl({
                        <span className="hover-marquee-inner">{title}</span>
                      </SidebarRowLabel>
                    </OverflowTip>
@@ -887,88 +927,13 @@ index cfe2076fb2..6491ee1846 100644
                    {session.preview && rowMeta.includes('preview') ? (
                      <span
                        className={cn(
-diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
-new file mode 100644
-index 0000000000..8a0b264702
---- /dev/null
-+++ b/apps/desktop/src/app/hooks/use-on-profile-switch.test.tsx
-@@ -0,0 +1,40 @@
-+import { act, cleanup, render } from '@testing-library/react'
-+import { StrictMode } from 'react'
-+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-+
-+import { $activeGatewayProfile } from '@/store/profile'
-+
-+import { useOnProfileSwitch } from './use-on-profile-switch'
-+
-+function Harness({ onSwitch }: { onSwitch: () => void }) {
-+  useOnProfileSwitch(onSwitch)
-+
-+  return null
-+}
-+
-+describe('useOnProfileSwitch', () => {
-+  beforeEach(() => {
-+    $activeGatewayProfile.set('default')
-+  })
-+
-+  afterEach(() => {
-+    cleanup()
-+    $activeGatewayProfile.set('default')
-+  })
-+
-+  it('does not report the StrictMode effect replay as a profile switch', () => {
-+    const onSwitch = vi.fn()
-+
-+    render(
-+      <StrictMode>
-+        <Harness onSwitch={onSwitch} />
-+      </StrictMode>
-+    )
-+
-+    expect(onSwitch).not.toHaveBeenCalled()
-+
-+    act(() => $activeGatewayProfile.set('research'))
-+
-+    expect(onSwitch).toHaveBeenCalledOnce()
-+  })
-+})
-diff --git a/apps/desktop/src/app/hooks/use-on-profile-switch.ts b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-index dfdfd84f2c..2c256901ce 100644
---- a/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-+++ b/apps/desktop/src/app/hooks/use-on-profile-switch.ts
-@@ -8,16 +8,20 @@ import { $activeGatewayProfile } from '@/store/profile'
-  *  when the backend the app talks to swaps underneath a still-mounted view. */
- export function useOnProfileSwitch(onSwitch: () => void): void {
-   const profile = useStore($activeGatewayProfile)
--  const first = useRef(true)
-+  const previousProfile = useRef(profile)
- 
-   // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-   useEffect(() => {
--    if (first.current) {
--      first.current = false
--
-+    // React StrictMode replays mount effects in development. A "first effect"
-+    // boolean turns that replay into a fake switch and clears freshly loaded
-+    // Settings drafts, leaving the overlay on skeletons until a page refresh.
-+    // Comparing the identity itself makes both mount passes no-ops while a real
-+    // A → B profile transition still fires exactly once.
-+    if (previousProfile.current === profile) {
-       return
-     }
- 
-+    previousProfile.current = profile
-     onSwitch()
-     // Fire on profile change only; onSwitch identity is intentionally ignored.
-     // eslint-disable-next-line react-hooks/exhaustive-deps
 diff --git a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-index d32d4abd94..6f4cd40d29 100644
+index fbab1141ef5..ac89c882628 100644
 --- a/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
 +++ b/apps/desktop/src/components/pane-shell/tree/renderer/tree-split.tsx
-@@ -766,9 +766,9 @@ function Sash({
+@@ -815,9 +815,9 @@ function Sash({
          // Asymmetric grab band: only 1px reaches into the leading pane so its
-         // edge-hugging 4px scrollbar stays clickable (the old centered 9px band
+         // edge-hugging 8px scrollbar stays clickable (the old centered 9px band
          // swallowed it entirely — the pointer got col-resize instead of the
 -        // thumb). The trailing side keeps a generous 7px reach; total grab
 -        // width stays ~8px so the sash is no harder to hit.
@@ -981,11 +946,12 @@ index d32d4abd94..6f4cd40d29 100644
        onDoubleClick={disabled ? undefined : onDoubleClick}
 diff --git a/apps/desktop/src/components/ui/profile-avatar.test.tsx b/apps/desktop/src/components/ui/profile-avatar.test.tsx
 new file mode 100644
-index 0000000000..78b25332db
+index 00000000000..765acbb7861
 --- /dev/null
 +++ b/apps/desktop/src/components/ui/profile-avatar.test.tsx
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,161 @@
 +import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
++import { atom } from 'nanostores'
 +import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 +
 +import type { ProfileIdentity } from '@/lib/profile-identity'
@@ -997,9 +963,13 @@ index 0000000000..78b25332db
 +// has one, else the deterministic initial/color fallback. A broken image must
 +// never appear — every failure path recovers to the fallback.
 +
++const activeGatewayRequest = vi.fn()
 +const requestGatewayForAgent = vi.fn()
++let activeConnectionId: null | string = 'pandora'
 +
 +vi.mock('@/store/gateway', () => ({
++  $gateway: atom({ request: (...args: unknown[]) => activeGatewayRequest(...args) }),
++  activeGatewayConnectionId: () => activeConnectionId,
 +  requestGatewayForAgent: (...args: unknown[]) => requestGatewayForAgent(...args)
 +}))
 +
@@ -1007,6 +977,7 @@ index 0000000000..78b25332db
 +
 +function makeIdentity(overrides: Partial<ProfileIdentity> = {}): ProfileIdentity {
 +  return {
++    assetProfile: 'scout',
 +    connectionId: 'pandora',
 +    mayHaveAvatar: true,
 +    hasMetadata: true,
@@ -1027,6 +998,8 @@ index 0000000000..78b25332db
 +const avatarImage = (container: HTMLElement) => container.querySelector<HTMLImageElement>('img')
 +
 +beforeEach(() => {
++  activeConnectionId = 'pandora'
++  activeGatewayRequest.mockResolvedValue({ found: true, data: DATA_URL })
 +  requestGatewayForAgent.mockResolvedValue({ found: true, data: DATA_URL })
 +})
 +
@@ -1044,6 +1017,7 @@ index 0000000000..78b25332db
 +
 +    await flush()
 +
++    expect(activeGatewayRequest).not.toHaveBeenCalled()
 +    expect(requestGatewayForAgent).not.toHaveBeenCalled()
 +    expect(avatarImage(container)).toBeNull()
 +    expect(container.textContent).toBe('L')
@@ -1056,18 +1030,31 @@ index 0000000000..78b25332db
 +    expect(avatarImage(container)?.getAttribute('src')).toBe(DATA_URL)
 +  })
 +
-+  it('requests the asset from the exact source connection and profile', async () => {
++  it('requests an active source avatar through the already-open gateway', async () => {
 +    render(<ProfileAvatar color={null} identity={makeIdentity()} />)
 +    await flush()
 +
-+    expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'scout', 'profiles.get_asset', {
++    expect(activeGatewayRequest).toHaveBeenCalledWith('profiles.get_asset', {
 +      asset: 'avatar',
 +      name: 'scout'
 +    })
++    expect(requestGatewayForAgent).not.toHaveBeenCalled()
++  })
++
++  it('uses one default-profile socket for an at-rest source', async () => {
++    activeConnectionId = 'local'
++    render(<ProfileAvatar color={null} identity={makeIdentity()} />)
++    await flush()
++
++    expect(requestGatewayForAgent).toHaveBeenCalledWith('pandora', 'default', 'profiles.get_asset', {
++      asset: 'avatar',
++      name: 'scout'
++    })
++    expect(activeGatewayRequest).not.toHaveBeenCalled()
 +  })
 +
 +  it('keeps the fallback when the asset is not found', async () => {
-+    requestGatewayForAgent.mockResolvedValue({ found: false })
++    activeGatewayRequest.mockResolvedValue({ found: false })
 +    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
 +    await flush()
 +
@@ -1076,7 +1063,7 @@ index 0000000000..78b25332db
 +  })
 +
 +  it('keeps the fallback when the request rejects', async () => {
-+    requestGatewayForAgent.mockRejectedValue(new Error('gateway unreachable'))
++    activeGatewayRequest.mockRejectedValue(new Error('gateway unreachable'))
 +    const { container } = render(<ProfileAvatar color={null} identity={makeIdentity()} />)
 +    await flush()
 +
@@ -1104,7 +1091,7 @@ index 0000000000..78b25332db
 +    )
 +    await flush()
 +
-+    expect(requestGatewayForAgent).toHaveBeenCalledTimes(1)
++    expect(activeGatewayRequest).toHaveBeenCalledTimes(1)
 +  })
 +
 +  it('is decorative by default and labelled only when asked', async () => {
@@ -1126,10 +1113,10 @@ index 0000000000..78b25332db
 +})
 diff --git a/apps/desktop/src/components/ui/profile-avatar.tsx b/apps/desktop/src/components/ui/profile-avatar.tsx
 new file mode 100644
-index 0000000000..fb25c3925a
+index 00000000000..6897f7fa21a
 --- /dev/null
 +++ b/apps/desktop/src/components/ui/profile-avatar.tsx
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,113 @@
 +import { useQuery } from '@tanstack/react-query'
 +import { useState } from 'react'
 +
@@ -1137,7 +1124,7 @@ index 0000000000..fb25c3925a
 +import type { ProfileIdentity } from '@/lib/profile-identity'
 +import { queryClient } from '@/lib/query-client'
 +import { cn } from '@/lib/utils'
-+import { requestGatewayForAgent } from '@/store/gateway'
++import { $gateway, activeGatewayConnectionId, requestGatewayForAgent } from '@/store/gateway'
 +
 +// The one avatar tile every surface shares (profile rail squares, session
 +// rows): the stored `avatar` profile asset when the backend reports one, else
@@ -1154,6 +1141,22 @@ index 0000000000..fb25c3925a
 +// Hermes: cached per exact (connectionId, profile), refetched on focus once
 +// the window has passed. Bot Mode remains the source of truth for edits.
 +const AVATAR_STALE_MS = 60_000
++
++function requestProfileAvatar(identity: ProfileIdentity): Promise<ProfileAssetResult> {
++  const params = { asset: 'avatar', name: identity.assetProfile }
++
++  // The active gateway already serves every profile it enumerated. Reusing it
++  // avoids one pooled backend spawn per profile on first paint.
++  if (identity.connectionId === activeGatewayConnectionId()) {
++    const gateway = $gateway.get()
++
++    return gateway ? gateway.request<ProfileAssetResult>('profiles.get_asset', params) : Promise.resolve({ found: false })
++  }
++
++  // An at-rest source needs at most one socket: its default gateway can read
++  // every local profile asset by name. Never dial the profile's own backend.
++  return requestGatewayForAgent<ProfileAssetResult>(identity.connectionId, 'default', 'profiles.get_asset', params)
++}
 +
 +export function ProfileAvatar({
 +  className,
@@ -1181,12 +1184,8 @@ index 0000000000..fb25c3925a
 +  const { data } = useQuery(
 +    {
 +      enabled: identity.mayHaveAvatar,
-+      queryFn: () =>
-+        requestGatewayForAgent<ProfileAssetResult>(identity.connectionId, identity.profile, 'profiles.get_asset', {
-+          asset: 'avatar',
-+          name: identity.profile
-+        }),
-+      queryKey: ['profile-avatar', identity.key],
++      queryFn: () => requestProfileAvatar(identity),
++      queryKey: ['profile-avatar', identity.key, identity.assetProfile],
 +      refetchOnWindowFocus: true,
 +      retry: false,
 +      staleTime: AVATAR_STALE_MS
@@ -1232,10 +1231,10 @@ index 0000000000..fb25c3925a
 +  )
 +}
 diff --git a/apps/desktop/src/global.d.ts b/apps/desktop/src/global.d.ts
-index 6e4b48f732..d977b63b4a 100644
+index 95b05a46596..6d8a35840b0 100644
 --- a/apps/desktop/src/global.d.ts
 +++ b/apps/desktop/src/global.d.ts
-@@ -1024,6 +1024,17 @@ export interface DesktopRegistryConnectionInput {
+@@ -1145,6 +1145,17 @@ export interface DesktopRegistryConnectionInput {
    remoteProfile?: string
  }
  
@@ -1253,7 +1252,7 @@ index 6e4b48f732..d977b63b4a 100644
  // One agent in the union roster: a profile on a registered source, with the
  // pre-computed @name-device handle for duplicate profile names.
  export interface DesktopRosterAgent {
-@@ -1033,6 +1044,8 @@ export interface DesktopRosterAgent {
+@@ -1154,6 +1165,8 @@ export interface DesktopRosterAgent {
    profile: string
    targetProfile?: string
    handle: string
@@ -1264,10 +1263,10 @@ index 6e4b48f732..d977b63b4a 100644
  export interface DesktopAgentRoster {
 diff --git a/apps/desktop/src/lib/profile-identity.test.ts b/apps/desktop/src/lib/profile-identity.test.ts
 new file mode 100644
-index 0000000000..299a40b947
+index 00000000000..5138f712e7f
 --- /dev/null
 +++ b/apps/desktop/src/lib/profile-identity.test.ts
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,143 @@
 +import { describe, expect, it } from 'vitest'
 +
 +import type { DesktopAgentRoster } from '@/global'
@@ -1349,15 +1348,12 @@ index 0000000000..299a40b947
 +    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'plain', roster }).nickname).toBe('plain')
 +  })
 +
-+  it('rules an avatar out only when the backend says so explicitly', () => {
++  it('probes an avatar only when the roster says one exists', () => {
 +    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'blankname', roster }).mayHaveAvatar).toBe(true)
 +    expect(resolveProfileIdentity({ connectionId: 'pandora', profile: 'scout', roster }).mayHaveAvatar).toBe(false)
 +  })
 +
-+  // REST `/api/profiles` — the roster's actual source — omits `has_avatar`
-+  // entirely, so "absent" must mean "probe it", not "no avatar". Treating the
-+  // two alike left every real profile stuck on its initial.
-+  it('probes when the roster carries no has_avatar flag', () => {
++  it('probes when the roster omits has_avatar', () => {
 +    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'plain', roster }).mayHaveAvatar).toBe(true)
 +
 +    const noFlag = {
@@ -1389,6 +1385,17 @@ index 0000000000..299a40b947
 +    expect(resolveProfileIdentity({ connectionId: null, profile: 'blankname', roster }).mayHaveAvatar).toBe(true)
 +  })
 +
++  it('uses the backend target profile for assets on an aliased route', () => {
++    const aliased = {
++      ...roster,
++      agents: [{ ...roster.agents[0], profile: 'writer', targetProfile: 'author' }]
++    }
++
++    const identity = resolveProfileIdentity({ connectionId: 'local', profile: 'writer', roster: aliased })
++
++    expect(identity.assetProfile).toBe('author')
++  })
++
 +  it('derives the fallback initial from the nickname', () => {
 +    expect(resolveProfileIdentity({ connectionId: 'local', profile: 'scout', roster }).initial).toBe('L')
 +    expect(resolveProfileIdentity({ connectionId: 'local', profile: '--!', roster: null }).initial).toBe('?')
@@ -1405,10 +1412,10 @@ index 0000000000..299a40b947
 +})
 diff --git a/apps/desktop/src/lib/profile-identity.ts b/apps/desktop/src/lib/profile-identity.ts
 new file mode 100644
-index 0000000000..04e1bf8aa1
+index 00000000000..05d8185ad85
 --- /dev/null
 +++ b/apps/desktop/src/lib/profile-identity.ts
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,110 @@
 +import type { DesktopAgentRoster, DesktopRosterAgent, RosterProfileMetadata } from '@/global'
 +
 +// One profile identity for every surface that paints a profile (the rail and
@@ -1420,6 +1427,8 @@ index 0000000000..04e1bf8aa1
 +export interface ProfileIdentity {
 +  connectionId: null | string
 +  profile: string
++  /** Backend profile name used for asset RPCs when the displayed route is aliased. */
++  assetProfile: string
 +  /** Trimmed backend display_name, else the profile name. Never blank. */
 +  nickname: string
 +  /** True only when the backend reports a stored avatar asset. */
@@ -1467,11 +1476,13 @@ index 0000000000..04e1bf8aa1
 + *  `fallbackLabel` preserves an existing surface label (`profileLabel`) when
 + *  the metadata is absent, so the initial and nickname never regress. */
 +export function profileIdentityFromMetadata({
++  assetProfile,
 +  connectionId,
 +  fallbackLabel,
 +  metadata,
 +  profile
 +}: {
++  assetProfile?: string
 +  connectionId: null | string
 +  fallbackLabel?: string
 +  metadata?: RosterProfileMetadata
@@ -1480,12 +1491,11 @@ index 0000000000..04e1bf8aa1
 +  const nickname = (metadata?.display_name ?? '').trim() || (fallbackLabel ?? '').trim() || profile.trim() || 'default'
 +
 +  return {
++    assetProfile: assetProfile || profile,
 +    connectionId,
-+    // Only an explicit `false` rules an avatar out. The desktop roster is built
-+    // from REST `/api/profiles`, which omits `has_avatar` entirely (only the
-+    // gateway RPC computes it), so treating "absent" as "no avatar" left every
-+    // profile on its initial. Unknown means probe: `found: false` still falls
-+    // back, and the asset query is cached per (connection, profile).
++    // /api/profiles currently omits has_avatar, so unknown must still probe.
++    // ProfileAvatar routes that probe through the active gateway or one shared
++    // default-profile socket per at-rest source — never one spawn per profile.
 +    mayHaveAvatar: metadata?.has_avatar !== false,
 +    hasMetadata: metadata != null,
 +    initial: fallbackInitial(nickname),
@@ -1506,35 +1516,34 @@ index 0000000000..04e1bf8aa1
 +  profile: string
 +  roster: DesktopAgentRoster | null
 +}): ProfileIdentity {
++  const agent = findRosterAgent(roster, connectionId, profile)
++
 +  return profileIdentityFromMetadata({
-+    connectionId,
++    assetProfile: agent?.targetProfile,
++    connectionId: agent?.connectionId ?? connectionId,
 +    fallbackLabel,
-+    metadata: findRosterAgent(roster, connectionId, profile)?.profileMetadata,
++    metadata: agent?.profileMetadata,
 +    profile
 +  })
 +}
 diff --git a/apps/desktop/src/store/reasoning-disclosure.ts b/apps/desktop/src/store/reasoning-disclosure.ts
-index 584c00a57a..35b4e5b2bd 100644
+index 25c26c72098..50e2f9cc25c 100644
 --- a/apps/desktop/src/store/reasoning-disclosure.ts
 +++ b/apps/desktop/src/store/reasoning-disclosure.ts
-@@ -2,10 +2,10 @@ import { atom } from 'nanostores'
+@@ -7,7 +7,7 @@ const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.col
  
- import { persistBoolean, storedBoolean } from '@/lib/storage'
+ /** Desktop-local presentation preference; shared backend config must not be changed by a single window.
+  *  Simple mode rests reasoning collapsed without touching this preference. */
+-const $reasoningCollapsedByDefaultPref = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
++const $reasoningCollapsedByDefaultPref = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
  
--const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault'
-+const REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY = 'hermes.desktop.reasoning.collapsedByDefault.v2'
- 
- /** Desktop-local presentation preference; shared backend config must not be changed by a single window. */
--export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, false))
-+export const $reasoningCollapsedByDefault = atom(storedBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, true))
- 
- $reasoningCollapsedByDefault.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
+ $reasoningCollapsedByDefaultPref.subscribe(value => persistBoolean(REASONING_COLLAPSED_BY_DEFAULT_STORAGE_KEY, value))
  
 diff --git a/hermes_cli/web_routers/cron.py b/hermes_cli/web_routers/cron.py
-index 43ed0ba76b..879f2f7569 100644
+index d2326ad332c..6f5382f4533 100644
 --- a/hermes_cli/web_routers/cron.py
 +++ b/hermes_cli/web_routers/cron.py
-@@ -26,6 +26,9 @@ router = APIRouter()
+@@ -35,6 +35,9 @@ router = APIRouter()
  
  _find_cron_job_profile = late("_find_cron_job_profile", "hermes_cli.web_server_cron")
  _fire_cron_job_for_profile = late("_fire_cron_job_for_profile", "hermes_cli.web_server_cron")
@@ -1544,7 +1553,7 @@ index 43ed0ba76b..879f2f7569 100644
  _forward_cron_fire_to_gateway = late("_forward_cron_fire_to_gateway", "hermes_cli.web_server_cron")
  _gateway_intentionally_stopped = late("_gateway_intentionally_stopped", "hermes_cli.web_server_cron")
  _notify_cron_provider_for_profile = late("_notify_cron_provider_for_profile", "hermes_cli.web_server_cron")
-@@ -172,6 +175,15 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
+@@ -572,6 +575,15 @@ def _resume_cron_job_sync(job_id: str, profile: Optional[str] = None):
  def _trigger_cron_job_sync(job_id: str, profile: Optional[str] = None):
      selected = _job_profile(job_id, profile)
      job = _found(_call_cron_for_profile(selected, "resolve_job_ref", job_id))
@@ -1561,7 +1570,7 @@ index 43ed0ba76b..879f2f7569 100644
      # external/manual fire paths share one durable claim, so only one executes
      # this run even racing across processes. Active jobs keep the legacy call
 diff --git a/hermes_cli/web_server_cron.py b/hermes_cli/web_server_cron.py
-index 63e301a67b..cb9dcc8040 100644
+index 71a8aa65192..aaf5aeac4e7 100644
 --- a/hermes_cli/web_server_cron.py
 +++ b/hermes_cli/web_server_cron.py
 @@ -123,6 +123,21 @@ def _cron_profile_home(profile: Optional[str]) -> Tuple[str, Path]:
@@ -1583,14 +1592,14 @@ index 63e301a67b..cb9dcc8040 100644
 +    )
 +
 +
- def _annotate_cron_job(job: Dict[str, Any], profile: str, home: Path) -> Dict[str, Any]:
-     return {
-         **job,
+ def _annotate_cron_job(
+     job: Dict[str, Any], profile: str, home: Path, heartbeat_age: Optional[float] = None,
+ ) -> Dict[str, Any]:
 diff --git a/hermes_cli/web_server_dashboard.py b/hermes_cli/web_server_dashboard.py
-index 5fdbb2e0b6..639c76b0d7 100644
+index ae014fc5383..f6e5e7f5da7 100644
 --- a/hermes_cli/web_server_dashboard.py
 +++ b/hermes_cli/web_server_dashboard.py
-@@ -397,6 +397,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
+@@ -408,6 +408,10 @@ def _normalise_theme_definition(data: Dict[str, Any]) -> Optional[Dict[str, Any]
          result["customCSS"] = custom_css
      if component_styles:
          result["componentStyles"] = component_styles
@@ -1602,10 +1611,10 @@ index 5fdbb2e0b6..639c76b0d7 100644
  
  
 diff --git a/tests/hermes_cli/test_web_server.py b/tests/hermes_cli/test_web_server.py
-index 3c63087fc7..6c3b6e1a53 100644
+index 9f39a4b392b..c432092e6fa 100644
 --- a/tests/hermes_cli/test_web_server.py
 +++ b/tests/hermes_cli/test_web_server.py
-@@ -4039,6 +4039,20 @@ class TestNormaliseThemeExtensions:
+@@ -4113,6 +4113,20 @@ class TestNormaliseThemeExtensions:
          r2 = _normalise_theme_definition({"name": "t", "customCSS": huge})
          assert len(r2["customCSS"]) <= 32 * 1024
  
@@ -1627,10 +1636,10 @@ index 3c63087fc7..6c3b6e1a53 100644
      def test_component_styles_per_bucket(self):
          from hermes_cli.web_server_dashboard import _normalise_theme_definition
 diff --git a/tests/hermes_cli/test_web_server_cron_profiles.py b/tests/hermes_cli/test_web_server_cron_profiles.py
-index 9e345c5faf..a15016880d 100644
+index 0755835f386..93bd95c1e12 100644
 --- a/tests/hermes_cli/test_web_server_cron_profiles.py
 +++ b/tests/hermes_cli/test_web_server_cron_profiles.py
-@@ -586,6 +586,53 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
+@@ -577,6 +577,53 @@ async def test_trigger_cron_job_fires_only_selected_job_and_returns_refreshed_st
      assert untouched["last_run_at"] is None
  
  
@@ -1685,11 +1694,19 @@ index 9e345c5faf..a15016880d 100644
  async def test_trigger_cron_job_reports_lost_claim_as_conflict(
      isolated_profiles,
 diff --git a/tests/tools/test_cronjob_run_background.py b/tests/tools/test_cronjob_run_background.py
-index 122913e8b4..83ae274868 100644
+index 897386f9bd1..69625945f71 100644
 --- a/tests/tools/test_cronjob_run_background.py
 +++ b/tests/tools/test_cronjob_run_background.py
-@@ -296,6 +296,36 @@ class TestInFlightDedupe:
+@@ -17,6 +17,7 @@ import threading
+ from unittest.mock import patch
  
+ from tools.cronjob_tools import (
++    _queue_desktop_run_on_gateway,
+     _try_dispatch_background_run,
+     cronjob,
+ )
+@@ -270,6 +271,46 @@ class TestInFlightDedupe:
+             sched.release_running_job("job-bg-10")
  
  class TestCronjobRunToolIntegration:
 +    def test_desktop_run_defers_to_gateway_owner(self, monkeypatch):
@@ -1716,17 +1733,27 @@ index 122913e8b4..83ae274868 100644
 +        assert out["success"] is True
 +        assert out["job"]["execution_mode"] == "gateway"
 +        assert out["job"]["queued_for_gateway"] is True
++        assert "executed" not in out["job"]
 +        m_trigger.assert_called_once_with(
 +            "job-bg-gateway",
 +            extra_prompt="one-fire context",
 +        )
 +        m_background.assert_not_called()
 +
++    def test_desktop_gateway_queue_does_not_resume_a_paused_job(self, monkeypatch):
++        monkeypatch.setenv("HERMES_DESKTOP", "1")
++        paused = {**_job("job-bg-paused"), "enabled": False, "state": "paused"}
++
++        with patch("tools.cronjob_tools.trigger_job") as m_trigger:
++            assert _queue_desktop_run_on_gateway(paused) is None
++
++        m_trigger.assert_not_called()
++
      def test_run_action_returns_background_note(self):
          """cronjob(action='run') surfaces the handle + do-not-wait note."""
          with _bound_session_key():
 diff --git a/tools/cronjob_tools.py b/tools/cronjob_tools.py
-index 79048541b8..7df67b6175 100644
+index 5bad3d299db..b5a3c81566b 100644
 --- a/tools/cronjob_tools.py
 +++ b/tools/cronjob_tools.py
 @@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
@@ -1738,15 +1765,7 @@ index 79048541b8..7df67b6175 100644
  
  logger = logging.getLogger(__name__)
  
-@@ -44,6 +44,7 @@ from cron.jobs import (
-     resnapshot_all_unpinned,
-     resnapshot_job,
-     resume_job,
-+    trigger_job,
-     update_job)
- from tools.cronjob_prompt_scan import _scan_cron_prompt
- from tools.cronjob_job_args import (
-@@ -663,6 +664,48 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
+@@ -742,6 +742,49 @@ def _refreshed_job_view(job_id: str) -> Dict[str, Any]:
      return _format_job(get_job(job_id) or {"id": job_id})
  
  
@@ -1757,6 +1776,8 @@ index 79048541b8..7df67b6175 100644
 +    import os
 +
 +    if os.getenv("HERMES_DESKTOP") != "1":
++        return None
++    if not is_job_runnable(job):
 +        return None
 +
 +    from hermes_cli.profiles import (
@@ -1779,7 +1800,6 @@ index 79048541b8..7df67b6175 100644
 +
 +    _notify_provider_jobs_changed_safe()
 +    result = _format_job(triggered)
-+    result["executed"] = True
 +    result["execution_mode"] = "gateway"
 +    result["queued_for_gateway"] = True
 +    return _dumps({
@@ -1795,10 +1815,10 @@ index 79048541b8..7df67b6175 100644
  def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
      job_id = job["id"]
      # `prompt` on run is transient per-fire context appended to the stored prompt, never
-@@ -673,6 +716,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
-         scan_error = _scan_cron_prompt(extra_prompt)
-         if scan_error:
-             return tool_error(scan_error, success=False)
+@@ -756,6 +799,9 @@ def _action_run(job: Dict[str, Any], a: Dict[str, Any]) -> str:
+     handed_off = _hand_off_primary_routed_run(job, extra_prompt=extra_prompt)
+     if handed_off is not None:
+         return handed_off
 +    gateway_run = _queue_desktop_run_on_gateway(job, extra_prompt=extra_prompt)
 +    if gateway_run is not None:
 +        return gateway_run
