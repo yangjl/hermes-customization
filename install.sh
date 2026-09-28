@@ -19,6 +19,7 @@ theme_name="hermes-focus"
 usage() {
   echo "Usage: ./install.sh [--theme NAME] [--enable-project-kanban] [--harden-shell] [--with-terminal-patch | --with-desktop-patch] [--install-desktop-app]"
   echo "Themes: hermes-focus (default), light-lab"
+  echo "Codex only: ./install.sh --codex-dbtl-only (register Research DBTL; leave Hermes unchanged)"
 }
 
 plugin_enabled() {
@@ -95,8 +96,18 @@ apply_desktop_patch=false
 install_desktop_app=false
 enable_project_kanban=false
 harden_shell=false
+codex_dbtl_only=false
+hermes_option_given=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --codex-dbtl-only|-h|--help) ;;
+    *) hermes_option_given=true ;;
+  esac
+  case "$1" in
+    --codex-dbtl-only)
+      codex_dbtl_only=true
+      shift
+      ;;
     --theme)
       [[ $# -ge 2 ]] || { usage >&2; exit 2; }
       theme_name="$2"
@@ -132,6 +143,64 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if "$codex_dbtl_only"; then
+  if "$hermes_option_given"; then
+    echo "Use --codex-dbtl-only without Hermes installation flags." >&2
+    exit 2
+  fi
+  python3 - "$repo_dir" <<'PY'
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+source = Path(sys.argv[1]) / "plugins/research-dbtl"
+parent = Path(os.environ.get("CODEX_PLUGIN_PARENT", str(Path.home() / "plugins"))).expanduser().resolve()
+marketplace = Path(os.environ.get("CODEX_MARKETPLACE_PATH", str(Path.home() / ".agents/plugins/marketplace.json"))).expanduser().resolve()
+creator = Path(os.environ.get("CODEX_PLUGIN_CREATOR", str(Path.home() / ".codex/skills/.system/plugin-creator/scripts/create_basic_plugin.py"))).expanduser()
+reader = creator.with_name("read_marketplace_name.py")
+destination = parent / "research-dbtl"
+if not creator.is_file() or not reader.is_file():
+    sys.exit("Codex plugin-creator is required. Set CODEX_PLUGIN_CREATOR to its scripts/create_basic_plugin.py, then retry.")
+# The scaffold records ./plugins/research-dbtl relative to the marketplace root.
+if marketplace.parts[-3:] != (".agents", "plugins", "marketplace.json") or parent != marketplace.parents[2] / "plugins":
+    sys.exit("Use matching destinations: CODEX_PLUGIN_PARENT=<root>/plugins and CODEX_MARKETPLACE_PATH=<root>/.agents/plugins/marketplace.json.")
+if destination.is_symlink():
+    sys.exit("Refusing to overwrite a symlinked Research DBTL installation.")
+for current, directories, files in os.walk(destination, followlinks=False):
+    if any((Path(current) / name).is_symlink() for name in directories + files):
+        sys.exit("Refusing to update Research DBTL containing nested symlinks; no files were changed.")
+if source.resolve() == destination.resolve():
+    sys.exit("Choose a CODEX_PLUGIN_PARENT outside this repository's plugin source.")
+registered = False
+if marketplace.exists():
+    subprocess.run([sys.executable, str(reader), "--marketplace-path", str(marketplace)], check=True)
+    data = json.loads(marketplace.read_text())
+    entries = data.get("plugins")
+    if not isinstance(entries, list):
+        sys.exit("Marketplace plugins must be an array; no files were changed.")
+    matches = [entry for entry in entries if isinstance(entry, dict) and entry.get("name") == "research-dbtl"]
+    if len(matches) > 1:
+        sys.exit("Duplicate Research DBTL marketplace entries; resolve them before installation.")
+    if matches:
+        if matches[0].get("source") != {"source": "local", "path": "./plugins/research-dbtl"}:
+            sys.exit("Research DBTL already points at a different source; no files were changed.")
+        registered = True
+if not registered:
+    # --force intentionally replaces only this plugin's scaffold manifest.
+    subprocess.run([sys.executable, str(creator), "research-dbtl", "--path", str(parent),
+                    "--with-marketplace", "--marketplace-path", str(marketplace), "--force"], check=True)
+# ponytail: merge this package's files; obsolete-file removal needs an ownership manifest.
+shutil.copytree(source, destination, dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
+print(f"Installed Research DBTL to {destination}")
+print(f"Registered in {marketplace}; enable Research DBTL in Codex and start a fresh task.")
+PY
+  exit 0
+fi
 
 if "$apply_terminal_patch" && "$apply_desktop_patch"; then
   echo "Choose only one patch; the Desktop patch already includes the terminal theme fix." >&2

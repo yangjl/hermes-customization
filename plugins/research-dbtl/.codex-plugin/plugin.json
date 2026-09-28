@@ -1,0 +1,22 @@
+{
+  "name": "research-dbtl",
+  "version": "0.1.0+codex.20260921180616",
+  "description": "Coordinate a single research project's Design, Build, Test and Learn workflow with human review and flexible agent roles.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Research DBTL",
+    "shortDescription": "Research workflows with human review.",
+    "longDescription": "Codex coordinates by default, with configurable Codex, Claude and Hermes roles. A local panel reviews pinned evidence while native Hermes Kanban records task ownership and history.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Set up DBTL for this research project.",
+      "Review this project's next research decision."
+    ],
+    "brandColor": "#2563EB"
+  }
+}

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Research DBTL · simplified MVP</title>
+<style>
+:root{color-scheme:light;--ink:#24362f;--muted:#69766f;--line:#dce4de;--green:#27664f;--bg:#f5f7f3}*{box-sizing:border-box}body{margin:0;color:var(--ink);background:var(--bg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}h1,h2,h3,p{margin:0}button,select,summary{font:inherit;color:inherit;cursor:pointer}button{border:1px solid var(--line);background:white;border-radius:8px;padding:9px 12px;display:inline-flex;align-items:center;justify-content:center;gap:8px}button:hover{border-color:var(--green);background:#f2f6f1}button:disabled{opacity:.45;cursor:default}button:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #457ad1;outline-offset:3px}svg{width:18px;height:18px;flex:none;vertical-align:middle}.bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}.muted,small{color:var(--muted)}.demo{padding:8px 28px;font-size:11px;background:#eaeedf;color:#586047}.demo select{font-size:11px;border:1px solid #cbd2bd;border-radius:5px;background:transparent;padding:3px 7px;margin-left:7px}.shell{max-width:1500px;margin:auto;padding:25px 28px}.brand{display:flex;align-items:center;gap:9px;font-weight:650}.mark{background:var(--green);color:white;border-radius:8px;padding:6px;display:flex}.top{margin-bottom:28px}h1{font-size:30px;letter-spacing:-.8px;font-weight:620}.project{margin-bottom:23px}.project p{color:var(--muted);font-size:13px;margin-top:4px}.agents{display:flex;gap:7px;flex-wrap:wrap}.agent{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;background:white;border:1px solid var(--line);border-radius:20px;font-size:11px}.avatar{display:inline-grid;place-items:center;font-size:10px;font-weight:700;width:22px;height:22px;border-radius:50%;background:#e5e9e5;color:#4b6050}.avatar.hermes{background:#e2eee4;color:#31613e}.avatar.codex{background:#e2eafa;color:#405a91}.avatar.claude{background:#f4e5d9;color:#925b37}.cycle{padding:12px 0;border-top:1px solid var(--line);margin-bottom:14px;font-size:12px}.cycle strong{margin-right:9px}.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:4px 7px;border-radius:5px;font-weight:600;white-space:nowrap}.badge svg{width:13px;height:13px}.green{background:#e5f0e8;color:#286548}.amber{background:#fff0cc;color:#80560e}.blue{background:#e9effc;color:#3b5e9c}.gray{background:#ebeeec;color:#66716b}.red{background:#fce8e4;color:#9b4336}.purple{background:#ede9f6;color:#70598b}.decision{display:flex;align-items:center;justify-content:space-between;gap:14px;border:1px solid #e4d3a2;border-radius:9px;padding:13px 16px;background:#fff7e6;margin-bottom:23px}.decision .lead{display:flex;gap:12px;align-items:center}.decision .lead>svg{color:#a27a26;width:22px;height:22px}.decision h2{font-size:15px}.decision small{display:block;font-size:11px}.decision.clear{background:#edf5ed;border-color:#cadfcc}.decision.clear .lead>svg{color:var(--green)}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.lane-head{display:flex;align-items:center;gap:8px;margin-bottom:13px}.lane-head h2{font-size:14px}.stage-icon{padding:7px;border-radius:8px;display:inline-flex}.card{display:flex;flex-direction:column;align-items:start;gap:13px;text-align:left;width:100%;padding:15px 13px;min-height:162px;border-radius:9px;box-shadow:0 2px 3px #26333103}.card strong{font-size:14px;line-height:1.4;font-weight:600}.card[aria-pressed="true"]{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}.card-footer{display:flex;align-items:center;justify-content:space-between;gap:7px;width:100%;margin-top:auto;font-size:11px;color:var(--muted)}.owner{display:flex;align-items:center;gap:5px}.conditional{min-height:162px;border:1px dashed #cbd0d4;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#787485;background:#f0eff3;font-size:12px;text-align:center;padding:12px}.conditional>svg{width:23px;height:23px}.conditional small{font-size:11px}.detail{background:white;border:1px solid var(--line);border-radius:10px;padding:20px}.detail-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px}.detail h2{font-size:19px;line-height:1.3;letter-spacing:-.3px;margin-bottom:15px}.detail p{font-size:12px;margin:8px 0}.detail .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:15px}.change{background:#f5f6f2;border-radius:7px;padding:12px;margin:12px 0;font-size:12px}.change .before{color:#858a83;text-decoration:line-through;margin-bottom:7px}.change .after{color:var(--green)}.issue{display:flex;gap:7px;align-items:center;color:#956923;font-size:11px;margin-top:9px}.scope{font-size:11px!important;color:var(--muted);display:flex;gap:7px;align-items:start;padding:10px 0}.scope svg{width:14px;height:14px;margin-top:2px}.primary,.secondary{width:100%;margin-top:9px}.primary{background:var(--green);border-color:var(--green);color:white}.primary:hover{background:#215641}.note{border-left:3px solid #cfaa62;background:#fcf7e9;padding:11px 12px;border-radius:0 5px 5px 0;font-size:12px;margin:12px 0}.detail details{border-top:1px solid #edf0eb;margin-top:13px;padding-top:8px;font-size:12px}.detail summary{padding:4px 0;color:var(--muted)}.file{display:block;font:10px/1.8 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere;color:var(--muted);margin-top:9px}.detail ul{padding-left:17px;font-size:12px}.proposal{padding:12px;border-radius:6px;background:#edf4ef;font-size:12px;margin-top:12px}.proposal h3{font-size:12px}.artifact-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:15px 0}.artifact{display:flex;align-items:center;gap:8px;font-size:11px;border:1px solid var(--line);padding:10px 8px;border-radius:7px}.artifact svg{color:var(--green)}.activity{border-top:1px solid var(--line);margin-top:22px;padding-top:14px;font-size:12px}.activity summary{color:var(--muted)}.activity ol{list-style:none;padding:0;margin:12px 0}.activity li{display:flex;gap:10px;border-bottom:1px solid var(--line);padding:9px 0}.activity small{display:block;font-size:11px;margin-top:2px}.event-number{color:var(--muted);font-size:10px;padding-top:3px}.empty{grid-column:1/-1;text-align:center;padding:38px 20px;border:1px dashed var(--line);border-radius:9px}.empty h2{font-size:16px}.empty p{font-size:12px;margin:8px 0 15px}.review{margin-top:22px;font-size:11px;color:var(--muted)}.review ol{line-height:1.9;padding-left:20px}.bottom{margin-top:22px;font-size:10px;color:var(--muted)}#announcement{font-size:11px;color:var(--green);min-height:17px;margin-top:12px}.back{display:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1150px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace{grid-template-columns:minmax(0,1fr) 300px}}
+@media(max-width:740px){.shell{padding:20px 16px}.demo{padding:8px 16px}.workspace{grid-template-columns:1fr}.project{gap:16px}h1{font-size:25px}.decision button{padding:9px}.decision small{max-width:230px}.detail{padding:17px}.back{display:inline-flex;margin-bottom:14px}.top{margin-bottom:21px}.cycle{align-items:start}.card{min-height:153px}.brand{font-size:13px}}
+@media(max-width:350px){.board{grid-template-columns:1fr}.decision{flex-wrap:wrap}}
+</style>
+</head><body>
+<div class="demo bar"><span><strong>MVP 03</strong> · Synthetic demo · No agents connected</span><label>Preview <select id="preview"><option value="normal">Populated</option><option value="empty">Empty</option><option value="loading">Loading</option><option value="failure">Failure</option><option value="stale">Stale evidence</option></select></label></div>
+<main class="shell">
+<header class="bar top"><div class="brand"><span class="mark" aria-hidden="true">↻</span>Research DBTL</div><button id="reset" title="Reset demo" aria-label="Reset demo">↺</button></header>
+<section class="project bar"><div><h1>Seedling response study</h1><p>Signal vs. baseline</p></div><div class="agents" aria-label="Assignments for this cycle"><span class="agent" title="Hermes · coordinator"><span class="avatar hermes" aria-hidden="true">H</span>Hermes</span><span class="agent" title="Codex · analysis"><span class="avatar codex" aria-hidden="true">Cx</span>Codex</span><span class="agent" title="Claude · reporting"><span class="avatar claude" aria-hidden="true">Cl</span>Claude</span><span class="agent" title="You · scientific decisions"><span class="avatar" aria-hidden="true">Y</span>You</span></div></section>
+<div class="bar cycle"><div id="cycle-summary"></div><span class="muted">Design → Build → Learn ↻</span></div>
+<section id="decision" class="decision" aria-label="Next decision"></section>
+<div class="workspace"><section aria-label="DBTL cycle board"><div class="board" id="board"></div><details class="activity"><summary>↔ Activity <span id="event-count"></span></summary><ol id="history"></ol></details></section><aside class="detail" id="detail" aria-label="Selected card details"></aside></div>
+<div id="announcement" role="status" aria-live="polite"></div>
+<details class="review"><summary>7-step walkthrough</summary><ol><li>Inspect evidence r1.</li><li>Request the cohort-scope correction.</li><li>Simulate Codex’s revision.</li><li>Approve r2 for the internal report.</li><li>Simulate Claude accepting the handoff.</li><li>Simulate report delivery.</li><li>Accept the internal report.</li></ol><p>“Stale evidence” blocks the old approval. Reset clears the demo.</p></details>
+<footer class="bottom bar"><span>Local preview · resets on reload</span><span>Project note · Hermes tasks · Research files</span></footer>
+</main>
+<script id="model">
+// ponytail: fixed, in-memory handoff scenario for human review only.
+// Real coordination must reuse the existing task board and project records.
+function initialState() {
+  return { selected:'build', preview:'normal', revision:1, approvedRevision:null,
+    stage:'review', reportRevision:null, candidate:false, proposal:false,
+    history:[{actor:'Hermes → Codex',text:'Assigned analysis B-02 under plan v2; one demo run, 20-minute limit.'},
+      {actor:'Codex → You',text:'Submitted evidence r1. Routine checks pass; cohort scope is missing from the interpretation.'}] }
+}
+function isApproved(state) { return state.approvedRevision === state.revision }
+function transition(state, action) {
+  if (action.type === 'reset') return initialState()
+  if (action.type === 'preview' && ['normal','empty','loading','failure','stale'].includes(action.value)) return {...state, preview:action.value}
+  if (state.preview !== 'normal') return state
+  if (action.type === 'select' && ['design','build','learn','test'].includes(action.value) && (action.value !== 'test' || state.candidate)) return {...state, selected:action.value}
+  const record = (changes, actor, text) => ({...state,...changes,history:[...state.history,{actor,text}]})
+  if (action.type === 'correct' && state.stage === 'review') return record({stage:'correction',selected:'build'},'You → Codex','Requested: limit the conclusion to the measured cohort and make the figure caption agree. No new analysis authorized.')
+  if (action.type === 'revise' && state.stage === 'correction') return record({stage:'review',revision:state.revision+1,selected:'build'},'Codex → You',`Submitted evidence r${state.revision+1}: scoped interpretation and matching caption. Data and analysis are unchanged.`)
+  if (action.type === 'approve' && state.stage === 'review' && state.revision>1 && action.revision === state.revision) return record({stage:'ready',approvedRevision:state.revision,selected:'learn'},'You → Hermes → Claude',`Approved r${state.revision} for internal reporting only. Assigned L-02 to Claude; acceptance pending.`)
+  if (action.type === 'accept-handoff' && state.stage === 'ready' && isApproved(state)) return record({stage:'reporting'},'Claude → Hermes',`Accepted L-02 using approved evidence r${state.revision}; no second owner or new analysis.`)
+  if (action.type === 'deliver' && state.stage === 'reporting' && isApproved(state)) return record({stage:'report-review',reportRevision:state.revision},'Claude → You',`Delivered figure, Results note, editable deck and inspection record pinned to r${state.revision}. Internal review pending.`)
+  if (action.type === 'accept-report' && state.stage === 'report-review' && isApproved(state) && state.reportRevision === state.revision) return record({stage:'complete'},'You → Hermes',`Accepted the internal development package for r${state.revision}. Manuscript admission and next-cycle execution remain separate.`)
+  if (action.type === 'upstream-change') return record({revision:state.revision+1,stage:'review',selected:'build'},'Hermes → You',`Upstream evidence changed to r${state.revision+1}. Earlier approvals, reports, and manuscript selections remain pinned to their old revision and need review.`)
+  if (action.type === 'candidate' && state.stage === 'complete' && isApproved(state) && !state.candidate) return record({candidate:state.revision,selected:'test'},'Writer selection → Independent Test',`Claim C-01 pinned to r${state.revision}; independent validator unassigned. No validation verdict.`)
+  if (action.type === 'propose' && state.stage === 'complete' && isApproved(state) && !state.proposal) return record({proposal:true},'Learn → Next Design','Drafted Cycle 03: check a second cohort. Scope, access, and budget need a decision before execution.')
+  return state
+}
+</script>
+<script>
+let state=initialState()
+const board=document.getElementById('board'),detail=document.getElementById('detail'),decision=document.getElementById('decision')
+const paths={
+ pen:'M12 19H5v-7L16 1l7 7L12 19Z M14 3l7 7 M5 12l7 7',
+ tool:'M14 6a5 5 0 0 0-6 6L2 18l4 4 6-6a5 5 0 0 0 6-6l-3 3-4-4 3-3Z',
+ flask:'M9 2h6 M10 2v7L4 19q-1 3 2 3h12q3 0 2-3L14 9V2 M7 15h10',
+ book:'M3 3h7q2 0 2 2v17q0-3-3-3H3V3Z M21 3h-7q-2 0-2 2 M21 3v16h-6q-3 0-3 3',
+ check:'m5 12 4 4L19 6',clock:'M12 8v5l3 2 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
+ lock:'M7 10V7a5 5 0 0 1 10 0v3 M5 10h14v11H5Z',alert:'m12 3 10 18H2L12 3Z M12 9v5 M12 17v1',
+ arrow:'M4 12h16 m-6-6 6 6-6 6',repeat:'M20 7a9 9 0 1 0 1 10 M20 2v6h-6',
+ file:'M5 2h9l5 5v15H5Z M14 2v6h5 M8 13h8 M8 17h5',chart:'M4 3v17h17 M8 15V9 M13 15V5 M18 15v-4',
+ slides:'M3 3h18v13H3Z M12 16v6 M7 22l5-6 5 6 M7 7h10 M7 11h6',eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+ play:'m8 4 12 8-12 8V4Z',pause:'M8 5v14 M16 5v14'
+}
+const icon=name=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name]||paths.file}"/></svg>`
+const badge=(label,tone='gray',glyph='clock')=>`<span class="badge ${tone}">${icon(glyph)}${label}</span>`
+const names={design:['Design','blue','pen'],build:['Build','green','tool'],test:['Test','purple','flask'],learn:['Learn','amber','book']}
+const escapeHTML=text=>String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+function act(action,message=''){state=transition(state,action);render();document.getElementById('announcement').textContent=message}
+function focusDetail(){detail.querySelector('h2')?.focus({preventScroll:true});if(innerWidth<=740)detail.scrollIntoView({block:'start'})}
+function shownState(){
+ if(state.preview!=='stale')return state
+ return {...transition({...initialState(),revision:2,approvedRevision:2,stage:'ready',history:[{actor:'You → Hermes → Claude',text:'Approved r2 for internal reporting; L-02 awaits acceptance.'}]},{type:'upstream-change'}),preview:'stale',selected:state.staleSelected||'build'}
+}
+function render(){
+ const s=shownState(),stale=s.approvedRevision!==null&&!isApproved(s),active=['normal','stale'].includes(s.preview)
+ document.getElementById('preview').value=state.preview
+ document.getElementById('cycle-summary').innerHTML=active?`<strong>Cycle 02</strong>${badge('Exploration','green','repeat')}`:{empty:'No active cycle',loading:'Loading…',failure:'Records unavailable'}[s.preview]
+ document.getElementById('event-count').textContent=active?`· ${s.history.length}`:''
+ document.getElementById('history').innerHTML=active?s.history.map((e,i)=>`<li><span class="event-number">${i+1}</span><div><strong>${escapeHTML(e.actor)}</strong><small>${escapeHTML(e.text)}</small></div></li>`).join(''):''
+ decision.className='decision'
+ if(!active){
+  const info={empty:['No cycle yet','Start with a research question.'],loading:['Loading evidence…','Decisions paused.'],failure:['Evidence unavailable','Reconnect and retry.']}[s.preview]
+  decision.innerHTML=`<div class="lead">${icon(s.preview==='failure'?'alert':'pause')}<h2>Decisions paused</h2></div>`
+  board.innerHTML=`<div class="empty">${icon(s.preview==='failure'?'alert':'file')}<h2>${info[0]}</h2><p>${info[1]}</p>${s.preview==='failure'?'<button data-action="retry">Retry</button>':''}</div>`
+  detail.innerHTML='<h2 tabindex="-1">No card selected</h2>';return
+ }
+ const buildStatus=stale?['Stale','red','alert']:s.stage==='correction'?['Revise','amber','repeat']:s.stage==='review'?['Review','amber','eye']:['Approved','green','check']
+ const learnStatus=stale?['Stale','red','lock']:{review:['Blocked','gray','lock'],correction:['Blocked','gray','lock'],ready:['Ready','blue','arrow'],reporting:['Working','blue','play'],'report-review':['Review','amber','eye'],complete:['Accepted','green','check']}[s.stage]
+ const next=stale?['alert','Approval expired',`r${s.approvedRevision} → r${s.revision} · review required`]:{
+  review:['eye',`Your review · r${s.revision}`,s.revision===1?'Cohort scope missing':'Correction ready'],
+  correction:['repeat','Codex · revision requested','Claude is blocked'],
+  ready:['arrow','Claude · ready for handoff',`Approved r${s.revision} · internal report only`],
+  reporting:['play','Claude · reporting',`Evidence r${s.revision}`],
+  'report-review':['eye','Your review · report',`4 artifacts · r${s.reportRevision}`],
+  complete:['check','Cycle complete','Internal report accepted']
+ }[s.stage]
+ if(['ready','reporting','complete'].includes(s.stage)&&!stale)decision.classList.add('clear')
+ decision.innerHTML=`<div class="lead">${icon(next[0])}<div><h2>${next[1]}</h2><small>${next[2]}</small></div></div><button data-action="open-next" aria-label="Open next action">Open ${icon('arrow')}</button>`
+ const cards={
+  design:{title:'Baseline plan',status:['Approved','green','check'],owner:'You',avatar:'Y',rev:'v2'},
+  build:{title:'Baseline comparison',status:buildStatus,owner:'Codex',avatar:'Cx',rev:`r${s.revision}`},
+  test:{title:'Claim C-01',status:s.candidate===s.revision?['Pending','purple','clock']:['Stale','red','alert'],owner:'Unassigned',avatar:'?',rev:`r${s.candidate}`},
+  learn:{title:'Reporting package',status:learnStatus,owner:'Claude',avatar:'Cl',rev:s.approvedRevision?`r${s.approvedRevision}`:'—'}
+ }
+ board.innerHTML=Object.entries(names).map(([id,n])=>{const c=cards[id];return `<div class="lane"><div class="lane-head"><span class="stage-icon ${n[1]}">${icon(n[2])}</span><h2>${n[0]}</h2></div>${id==='test'&&!s.candidate?`<div class="conditional">${icon('flask')}<strong>Manuscript only</strong><small>Inactive in exploration</small></div>`:`<button class="card" data-card="${id}" aria-pressed="${s.selected===id}" aria-controls="detail">${badge(...c.status)}<strong>${c.title}</strong><span class="card-footer"><span class="owner"><span class="avatar ${c.owner.toLowerCase()}" aria-hidden="true">${c.avatar}</span>${c.owner}</span><span>${c.rev}</span></span></button>`}</div>`}).join('')
+ const button=(action,label,glyph,disabled=false,primary=false)=>`<button data-action="${action}" class="${primary?'primary':'secondary'}" ${disabled||stale?'disabled':''}>${icon(glyph)}${label}</button>`
+ const scope=`<p class="scope">${icon('lock')}Internal report only · no new analysis.</p>`
+ const changed=s.revision>1
+ const provenance=`<details><summary>Evidence &amp; checks</summary><span class="file">run demo-02 · code demo-b7<br>data seedlings-fixture-v1<br>evidence/r${s.revision}/summary.tsv<br>evidence/r${s.revision}/interpretation.md<br>evidence/r${s.revision}/figure-caption.md</span><ul><li>Sample IDs aligned ✓</li><li>No train/test overlap ✓</li><li>Figure values agree ✓</li></ul><p>Simulated routine checks; not independent manuscript validation.</p></details>`
+ const build=`${badge(...buildStatus)}<div class="change">${stale?`<strong>r${s.revision} is unreviewed</strong><p>r${s.approvedRevision} approval no longer applies.</p><small>Current checks: unavailable</small>`:`${changed?'<div class="before">No improvement in prediction.</div>':''}<div class="${changed?'after':''}">${changed?'No improvement in the measured cohort. Transfer is untested.':'No improvement in prediction.'}</div>${changed?`<div class="issue" style="color:var(--green)">${icon('check')}Caption updated · results unchanged</div>`:`<div class="issue">${icon('alert')}Missing cohort limitation</div>`}`}</div>
+ ${stale?'<div class="note">Reconcile new evidence before handing off.</div>':s.stage==='correction'?'<div class="note">Qualify the cohort scope; match the caption.</div>'+button('revise','Demo: revise','repeat',false,true):s.stage==='review'?scope+button('approve',`Approve r${s.revision}`,'check',!changed,true)+button('correct','Request correction','repeat'):`<p class="scope">${icon('check')}r${s.approvedRevision} approved · handed to Claude</p>`}
+ ${stale?`<details><summary>Revision details</summary><p>Earlier checks and reports cover r${s.approvedRevision} only. Reconcile inputs and affected artifacts before a new approval.</p></details>`:provenance}`
+ let reporting=badge(...learnStatus)+scope
+ if(stale)reporting+='<div class="note">Input changed. Handoff blocked.</div>'
+ else if(['review','correction'].includes(s.stage))reporting+=`<div class="note">${icon('lock')} Waiting for your approval.</div>`
+ else if(s.stage==='ready')reporting+=`<div class="change"><strong>Hermes → Claude</strong><p>Use r${s.approvedRevision}. Keep the cohort limitation.</p></div>`+button('accept-handoff','Demo: accept handoff','arrow',false,true)
+ else if(s.stage==='reporting')reporting+=`<p class="scope">${icon('play')}Claude accepted · r${s.revision}</p>`+button('deliver','Demo: deliver report','file',false,true)
+ else reporting+=`<div class="artifact-list"><span class="artifact">${icon('chart')}Figure</span><span class="artifact">${icon('file')}Results</span><span class="artifact">${icon('slides')}Deck</span><span class="artifact">${icon('eye')}Inspection</span></div>`+(s.stage==='report-review'?button('accept-report','Accept report','check',false,true):`<p class="scope">${icon('check')}Development evidence accepted.</p>`+button('candidate',s.candidate?'Claim selected':'Manuscript → Test','flask',!!s.candidate)+button('propose',s.proposal?'Design proposed':'Next Design','pen',s.proposal)+(s.proposal?'<div class="proposal"><h3>Cycle 03 · Draft</h3><p>Second cohort · scope and budget pending.</p></div>':''))+`<details><summary>Package details · r${s.reportRevision}</summary><span class="file">reports/r${s.reportRevision}/figure.svg<br>reports/r${s.reportRevision}/results-note.md<br>reports/r${s.reportRevision}/lab-meeting.pptx<br>reports/r${s.reportRevision}/deck-inspection.md</span><p>Cohort limitation retained. Figure values and rendered slides checked in this synthetic scenario.</p></details>`
+ reporting+='<details><summary>Handoff scope</summary><p>Hermes coordinates; Claude owns reporting. Use only the approved revision. No new analysis, manuscript admission, or next-cycle execution. Resume the same assignment after interruption.</p></details>'
+ const current=cards[s.selected]
+ detail.innerHTML=`<button class="back" data-action="back">← Board</button><div class="detail-top"><span class="owner"><span class="avatar ${current.owner.toLowerCase()}" aria-hidden="true">${current.avatar}</span>${current.owner}</span><small>${current.rev}</small></div><h2 tabindex="-1">${current.title}</h2>`+{
+  build,learn:reporting,
+  design:`${badge('Approved v2','green','check')}<div class="change">Compare baseline + one signal on held-out samples.</div><p class="scope">${icon('clock')}One run · 20-minute demo budget</p><details><summary>Plan &amp; assignments</summary><p>Stop on data mismatch or method change. Hermes coordinates Codex’s analysis and Claude’s reporting. You retain scientific decisions. Roles apply to this cycle.</p><span class="file">plan/design/cycle-02.md · v2</span></details>`,
+  test:`${badge(s.candidate===s.revision?'Pending · no verdict':'Stale','purple','flask')}<div class="change">No improvement in held-out prediction in the measured cohort.</div><p class="scope">${icon('lock')}Manuscript admission awaits independent Test.</p><details><summary>Validation scope · r${s.candidate}</summary><p>Validator unassigned. Reproduce from pinned inputs without Builder analysis code. Check method, scope, and figure/text agreement.</p><span class="file">evidence/r${s.candidate}/summary.tsv<br>reports/r${s.candidate}/results-note.md</span></details>`
+ }[s.selected]
+}
+function handleClick(event){
+  const card=event.target.closest('[data-card]'), button=event.target.closest('[data-action]')
+  if(card){if(state.preview==='stale'){state={...state,staleSelected:card.dataset.card};render();focusDetail();return}act({type:'select',value:card.dataset.card});focusDetail();return}
+  if(!button||button.disabled)return
+  const action=button.dataset.action
+  if(action==='retry'){act({type:'preview',value:'normal'},'Demo records restored.');document.getElementById('preview').focus();return}
+  if(action==='back'){board.querySelector('[aria-pressed="true"]')?.focus();return}
+  if(action==='open-next'){if(state.preview==='stale'){state={...state,staleSelected:'build'};render();focusDetail();return}act({type:'select',value:['review','correction'].includes(state.stage)?'build':'learn'});focusDetail();return}
+  act({type:action,revision:state.revision},'Demo updated · nothing executed.');focusDetail()
+}
+board.addEventListener('click',handleClick);detail.addEventListener('click',handleClick);decision.addEventListener('click',handleClick)
+document.getElementById('preview').addEventListener('change',e=>act({type:'preview',value:e.target.value}))
+document.getElementById('reset').addEventListener('click',()=>act({type:'reset'},'Demo reset.'))
+render()
+</script>
+</body></html>
